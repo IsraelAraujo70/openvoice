@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenVoice Settings</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h1 .icon {
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 30px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #ccc;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #333;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #4CAF50;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    input::placeholder {
+      color: #666;
+    }
+
+    select option {
+      background: #1a1a2e;
+      color: #fff;
+    }
+
+    .shortcut-input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #333;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #4CAF50;
+      font-size: 14px;
+      font-family: monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+
+    .shortcut-input:focus {
+      outline: none;
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+
+    .shortcut-input.capturing {
+      border-color: #ffaa00;
+      background: rgba(255, 170, 0, 0.1);
+      color: #ffaa00;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .shortcut-hint {
+      font-size: 11px;
+      color: #666;
+      margin-top: 6px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ccc;
+      margin-top: 10px;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .status-message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .status-message.success {
+      display: block;
+      background: rgba(76, 175, 80, 0.2);
+      border: 1px solid #4CAF50;
+      color: #4CAF50;
+    }
+
+    .status-message.error {
+      display: block;
+      background: rgba(244, 67, 54, 0.2);
+      border: 1px solid #f44336;
+      color: #f44336;
+    }
+
+    .info-box {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #888;
+      line-height: 1.5;
+    }
+
+    .info-box a {
+      color: #4CAF50;
+      text-decoration: none;
+    }
+
+    .info-box a:hover {
+      text-decoration: underline;
+    }
+
+    .refresh-btn {
+      background: none;
+      border: none;
+      color: #4CAF50;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px 8px;
+      margin-left: 8px;
+    }
+
+    .refresh-btn:hover {
+      text-decoration: underline;
+    }
+
+    .shortcut-value {
+      color: #4CAF50;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>
+      <span class="icon">🎙️</span>
+      OpenVoice
+    </h1>
+    <p class="subtitle">Voice-to-clipboard transcription</p>
+
+    <form id="settings-form">
+      <div class="form-group">
+        <label for="api-key">OpenRouter API Key</label>
+        <input 
+          type="password" 
+          id="api-key" 
+          placeholder="sk-or-v1-..."
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="form-group">
+        <label>
+          Audio Input Device
+          <button type="button" class="refresh-btn" id="refresh-devices">↻ Refresh</button>
+        </label>
+        <select id="audio-device">
+          <option value="">Default device</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="shortcut-input">Recording Shortcut</label>
+        <input 
+          type="text" 
+          id="shortcut-input" 
+          class="shortcut-input"
+          readonly
+          placeholder="Click to set shortcut..."
+        >
+        <p class="shortcut-hint">Click and press your desired key combination (e.g., Ctrl+Shift+R)</p>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+      <button type="button" class="btn btn-secondary" id="close-btn">Close</button>
+    </form>
+
+    <div id="status-message" class="status-message"></div>
+
+    <div class="info-box">
+      <strong>How to use:</strong><br>
+      1. Get an API key from <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a><br>
+      2. Press <span class="shortcut-value" id="info-shortcut">Ctrl+Shift+V</span> to start recording<br>
+      3. Press again to stop and transcribe<br>
+      4. Text is automatically copied to clipboard
+    </div>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { emit } = window.__TAURI__.event;
+    const { getCurrentWindow } = window.__TAURI__.window;
+
+    // Elements
+    const form = document.getElementById('settings-form');
+    const apiKeyInput = document.getElementById('api-key');
+    const audioDeviceSelect = document.getElementById('audio-device');
+    const shortcutInput = document.getElementById('shortcut-input');
+    const infoShortcut = document.getElementById('info-shortcut');
+    const statusMessage = document.getElementById('status-message');
+    const refreshBtn = document.getElementById('refresh-devices');
+    const closeBtn = document.getElementById('close-btn');
+
+    let currentShortcut = 'Ctrl+Shift+V';
+    let isCapturing = false;
+
+    // Load audio devices
+    async function loadAudioDevices() {
+      try {
+        const devices = await invoke('get_audio_devices');
+        console.log('Audio devices:', devices);
+
+        // Clear and repopulate
+        audioDeviceSelect.innerHTML = '<option value="">Default device</option>';
+        
+        devices.forEach(device => {
+          const option = document.createElement('option');
+          option.value = device.name;
+          option.textContent = device.name + (device.is_default ? ' (default)' : '');
+          audioDeviceSelect.appendChild(option);
+        });
+      } catch (e) {
+        console.error('Failed to load audio devices:', e);
+      }
+    }
+
+    // Load saved config
+    async function loadConfig() {
+      try {
+        const config = await invoke('load_config');
+        console.log('Loaded config:', config);
+        
+        apiKeyInput.value = config.api_key || '';
+        currentShortcut = config.shortcut || 'Ctrl+Shift+V';
+        shortcutInput.value = currentShortcut;
+        infoShortcut.textContent = currentShortcut;
+        
+        // Wait for devices to load, then select saved device
+        await loadAudioDevices();
+        if (config.audio_device) {
+          audioDeviceSelect.value = config.audio_device;
+        }
+      } catch (e) {
+        console.error('Failed to load config:', e);
+      }
+    }
+
+    // Show status message
+    function showStatus(message, type = 'success') {
+      statusMessage.textContent = message;
+      statusMessage.className = 'status-message ' + type;
+      
+      setTimeout(() => {
+        statusMessage.className = 'status-message';
+      }, 3000);
+    }
+
+    // Shortcut capture
+    function startCapture() {
+      isCapturing = true;
+      shortcutInput.classList.add('capturing');
+      shortcutInput.value = 'Press your shortcut...';
+    }
+
+    function stopCapture() {
+      isCapturing = false;
+      shortcutInput.classList.remove('capturing');
+    }
+
+    function formatShortcut(e) {
+      const parts = [];
+      
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      if (e.metaKey) parts.push('Meta');
+      
+      // Get the key (excluding modifier keys themselves)
+      const key = e.key;
+      const code = e.code;
+      
+      // Skip if only modifier was pressed
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
+        return null;
+      }
+      
+      // Format the key
+      let keyName = key.toUpperCase();
+      
+      // Handle special keys
+      if (code.startsWith('Key')) {
+        keyName = code.replace('Key', '');
+      } else if (code.startsWith('Digit')) {
+        keyName = code.replace('Digit', '');
+      } else if (code.startsWith('F') && code.length <= 3) {
+        keyName = code; // F1-F12
+      } else if (key === ' ') {
+        keyName = 'Space';
+      } else if (key === 'ArrowUp') {
+        keyName = 'Up';
+      } else if (key === 'ArrowDown') {
+        keyName = 'Down';
+      } else if (key === 'ArrowLeft') {
+        keyName = 'Left';
+      } else if (key === 'ArrowRight') {
+        keyName = 'Right';
+      }
+      
+      // Must have at least one modifier
+      if (parts.length === 0) {
+        return null;
+      }
+      
+      parts.push(keyName);
+      return parts.join('+');
+    }
+
+    shortcutInput.addEventListener('click', () => {
+      startCapture();
+    });
+
+    shortcutInput.addEventListener('blur', () => {
+      if (isCapturing) {
+        stopCapture();
+        shortcutInput.value = currentShortcut;
+      }
+    });
+
+    shortcutInput.addEventListener('keydown', (e) => {
+      if (!isCapturing) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const shortcut = formatShortcut(e);
+      
+      if (shortcut) {
+        currentShortcut = shortcut;
+        shortcutInput.value = shortcut;
+        infoShortcut.textContent = shortcut;
+        stopCapture();
+        shortcutInput.blur();
+      }
+    });
+
+    // Prevent default behavior for modifier keys in capture mode
+    document.addEventListener('keydown', (e) => {
+      if (isCapturing && ['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+        e.preventDefault();
+      }
+    });
+
+    // Save config
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const config = {
+        api_key: apiKeyInput.value.trim(),
+        audio_device: audioDeviceSelect.value || null,
+        model: null,
+        shortcut: currentShortcut
+      };
+
+      try {
+        // Save config first
+        await invoke('save_config', { config });
+        
+        // Set the audio device
+        await invoke('set_audio_device', { deviceName: config.audio_device });
+        
+        // Update the shortcut registration
+        try {
+          await invoke('update_shortcut', { newShortcut: currentShortcut });
+        } catch (shortcutError) {
+          console.error('Failed to update shortcut:', shortcutError);
+          showStatus('Saved, but shortcut failed: ' + shortcutError, 'error');
+          return;
+        }
+        
+        // Notify main window
+        await emit('config-updated');
+        
+        showStatus('Settings saved successfully!', 'success');
+      } catch (e) {
+        console.error('Failed to save config:', e);
+        showStatus('Failed to save: ' + e, 'error');
+      }
+    });
+
+    // Refresh devices button
+    refreshBtn.addEventListener('click', loadAudioDevices);
+
+    // Close button
+    closeBtn.addEventListener('click', async () => {
+      const window = getCurrentWindow();
+      await window.hide();
+    });
+
+    // Initialize
+    loadConfig();
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "openvoice",
+  "version": "0.1.0",
+  "description": "Voice-to-clipboard transcription app using OpenRouter API",
+  "scripts": {
+    "tauri": "bunx tauri",
+    "dev": "bunx tauri dev",
+    "build": "bunx tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  }
+}

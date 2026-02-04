@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenVoice</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      border-radius: 16px;
+      border: 2px solid #333;
+      padding: 20px;
+    }
+
+    .container.recording {
+      border-color: #00ff00;
+      animation: pulse-border 1s ease-in-out infinite;
+    }
+
+    .container.processing {
+      border-color: #ffaa00;
+    }
+
+    .container.success {
+      border-color: #00ff00;
+    }
+
+    .container.error {
+      border-color: #ff4444;
+    }
+
+    @keyframes pulse-border {
+      0%, 100% { border-color: #00ff00; }
+      50% { border-color: #00aa00; }
+    }
+
+    .icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    .status {
+      color: white;
+      font-size: 16px;
+      font-weight: 500;
+      text-align: center;
+    }
+
+    .hint {
+      color: #888;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .recording-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: #ff0000;
+      border-radius: 50%;
+      margin-right: 8px;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div id="container" class="container">
+    <div class="icon" id="icon">🎙️</div>
+    <div class="status" id="status">Ready</div>
+    <div class="hint" id="hint">Press shortcut to record</div>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const { getCurrentWindow } = window.__TAURI__.window;
+
+    const container = document.getElementById('container');
+    const icon = document.getElementById('icon');
+    const status = document.getElementById('status');
+    const hint = document.getElementById('hint');
+
+    let isRecording = false;
+    let apiKey = '';
+    let currentShortcut = 'Ctrl+Shift+V';
+    const appWindow = getCurrentWindow();
+
+    async function loadConfig() {
+      try {
+        const config = await invoke('load_config');
+        apiKey = config.api_key || '';
+        currentShortcut = config.shortcut || 'Ctrl+Shift+V';
+        if (config.audio_device) {
+          await invoke('set_audio_device', { deviceName: config.audio_device });
+        }
+        hint.textContent = `Press ${currentShortcut} to record`;
+        console.log('Config loaded, shortcut:', currentShortcut);
+      } catch (e) {
+        console.error('Failed to load config:', e);
+      }
+    }
+
+    function updateUI(state, message, hintText = '') {
+      container.className = 'container ' + state;
+      status.innerHTML = message;
+      hint.textContent = hintText;
+      
+      switch(state) {
+        case 'recording':
+          icon.textContent = '🔴';
+          break;
+        case 'processing':
+          icon.textContent = '⏳';
+          break;
+        case 'success':
+          icon.textContent = '✅';
+          break;
+        case 'error':
+          icon.textContent = '❌';
+          break;
+        default:
+          icon.textContent = '🎙️';
+      }
+    }
+
+    async function updateTrayState(recording) {
+      try {
+        await invoke('update_tray_recording_state', { isRecording: recording });
+      } catch (e) {
+        console.error('Failed to update tray state:', e);
+      }
+    }
+
+    async function toggleRecording() {
+      if (!apiKey) {
+        updateUI('error', 'No API key set', 'Configure in settings');
+        await appWindow.show();
+        await invoke('show_settings');
+        setTimeout(() => appWindow.hide(), 2000);
+        return;
+      }
+
+      if (isRecording) {
+        await stopAndTranscribe();
+      } else {
+        await startRecording();
+      }
+    }
+
+    async function startRecording() {
+      try {
+        await appWindow.show();
+        updateUI('recording', '<span class="recording-dot"></span>Recording...', `Press ${currentShortcut} to stop`);
+        
+        await invoke('start_recording');
+        isRecording = true;
+        
+        // Update tray icon to recording state
+        await updateTrayState(true);
+        
+        console.log('Recording started');
+      } catch (e) {
+        console.error('Failed to start recording:', e);
+        updateUI('error', 'Failed to start', e.toString());
+        await updateTrayState(false);
+        setTimeout(() => appWindow.hide(), 2000);
+      }
+    }
+
+    async function stopAndTranscribe() {
+      try {
+        updateUI('processing', 'Processing...', 'Transcribing audio');
+
+        // Update tray icon back to normal
+        await updateTrayState(false);
+
+        const audioData = await invoke('stop_recording');
+        isRecording = false;
+        console.log('Recording stopped, audio length:', audioData.length);
+
+        updateUI('processing', 'Transcribing...', 'Sending to AI');
+        
+        const transcription = await invoke('transcribe_audio', {
+          audioBase64: audioData,
+          apiKey: apiKey,
+          model: null
+        });
+
+        console.log('Transcription:', transcription);
+
+        await invoke('copy_to_clipboard', { text: transcription });
+
+        updateUI('success', 'Copied!', transcription.substring(0, 50) + (transcription.length > 50 ? '...' : ''));
+        
+        setTimeout(() => {
+          appWindow.hide();
+        }, 1500);
+
+      } catch (e) {
+        console.error('Failed to transcribe:', e);
+        isRecording = false;
+        await updateTrayState(false);
+        updateUI('error', 'Error', e.toString().substring(0, 50));
+        
+        setTimeout(() => {
+          appWindow.hide();
+        }, 3000);
+      }
+    }
+
+    // Listen for toggle-recording event
+    listen('toggle-recording', () => {
+      console.log('Toggle recording event received');
+      toggleRecording();
+    });
+
+    // Listen for config updates
+    listen('config-updated', async () => {
+      console.log('Config updated');
+      await loadConfig();
+    });
+
+    // Initialize
+    loadConfig();
+    console.log('OpenVoice initialized');
+  </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "openvoice",
+      "dependencies": {
+        "@tauri-apps/api": "^2",
+      },
+      "devDependencies": {
+        "@tauri-apps/cli": "^2",
+      },
+    },
+  },
+  "packages": {
+    "@tauri-apps/api": ["@tauri-apps/api@2.10.1", "", {}, ""],
+
+    "@tauri-apps/cli": ["@tauri-apps/cli@2.10.0", "", { "optionalDependencies": { "@tauri-apps/cli-linux-x64-gnu": "2.10.0" }, "bin": { "tauri": "tauri.js" } }, ""],
+
+    "@tauri-apps/cli-linux-x64-gnu": ["@tauri-apps/cli-linux-x64-gnu@2.10.0", "", { "os": "linux", "cpu": "x64" }, ""],
+  }
+}
