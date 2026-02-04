@@ -362,16 +362,30 @@ fn update_tray_recording_state(app: AppHandle, is_recording: bool, state: State<
 async fn update_shortcut(app: AppHandle, new_shortcut: String, state: State<'_, AppState>) -> Result<(), String> {
     let new_parsed = parse_shortcut_string(&new_shortcut)?;
     
-    // Unregister current shortcut
+    // Unregister current shortcut first
     {
-        let current = state.current_shortcut.lock().map_err(|e| e.to_string())?;
-        if let Some(old_shortcut) = current.as_ref() {
-            let _ = app.global_shortcut().unregister(*old_shortcut);
-            log::info!("Unregistered old shortcut");
+        let mut current = state.current_shortcut.lock().map_err(|e| e.to_string())?;
+        if let Some(old_shortcut) = current.take() {
+            // Try to unregister - ignore errors as it may not be registered
+            if let Err(e) = app.global_shortcut().unregister(old_shortcut) {
+                log::warn!("Failed to unregister old shortcut: {}", e);
+            } else {
+                log::info!("Unregistered old shortcut");
+            }
         }
     }
     
-    // Register new shortcut
+    // Small delay to ensure unregister takes effect
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    
+    // Check if new shortcut is already registered, unregister it first
+    if app.global_shortcut().is_registered(new_parsed) {
+        log::info!("New shortcut already registered, unregistering first");
+        let _ = app.global_shortcut().unregister(new_parsed);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    
+    // Register new shortcut with handler
     let app_handle = app.clone();
     app.global_shortcut().on_shortcut(new_parsed, move |_app, _shortcut, _event| {
         log::info!("Global shortcut triggered");
@@ -379,9 +393,6 @@ async fn update_shortcut(app: AppHandle, new_shortcut: String, state: State<'_, 
             let _ = window.emit("toggle-recording", ());
         }
     }).map_err(|e| format!("Failed to set shortcut handler: {}", e))?;
-
-    app.global_shortcut().register(new_parsed)
-        .map_err(|e| format!("Failed to register shortcut: {}", e))?;
     
     // Update stored shortcut
     {
@@ -427,15 +438,17 @@ fn setup_global_shortcut(app: &AppHandle, state: &AppState) -> Result<(), Box<dy
     let shortcut = parse_shortcut_string(&shortcut_str)
         .unwrap_or_else(|_| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV));
 
+    log::info!("Setting up global shortcut: {}", shortcut_str);
+
     let app_handle = app.clone();
+    
+    // on_shortcut already registers the shortcut internally, no need to call register() separately
     app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
         log::info!("Global shortcut triggered");
         if let Some(window) = app_handle.get_webview_window("main") {
             let _ = window.emit("toggle-recording", ());
         }
     })?;
-
-    app.global_shortcut().register(shortcut)?;
     
     // Store current shortcut
     {
