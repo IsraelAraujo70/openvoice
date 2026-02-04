@@ -478,10 +478,17 @@
     // Refresh devices button
     refreshBtn.addEventListener('click', loadAudioDevices);
 
-    // Close button
+    // Close button - hide instead of close
     closeBtn.addEventListener('click', async () => {
-      const window = getCurrentWindow();
-      await window.hide();
+      const win = getCurrentWindow();
+      await win.hide();
+    });
+
+    // Intercept window close to hide instead
+    const win = getCurrentWindow();
+    win.onCloseRequested(async (event) => {
+      event.preventDefault();
+      await win.hide();
     });
 
     // Initialize

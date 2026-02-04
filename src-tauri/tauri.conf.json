@@ -31,11 +31,14 @@
         "label": "settings",
         "title": "OpenVoice Settings",
         "width": 450,
-        "height": 400,
+        "height": 500,
         "resizable": false,
         "visible": false,
         "center": true,
-        "url": "settings.html"
+        "url": "settings.html",
+        "decorations": true,
+        "minimizable": true,
+        "closable": true
       }
     ],
     "security": {

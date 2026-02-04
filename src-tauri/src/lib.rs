@@ -389,9 +389,8 @@ async fn update_shortcut(app: AppHandle, new_shortcut: String, state: State<'_, 
     let app_handle = app.clone();
     app.global_shortcut().on_shortcut(new_parsed, move |_app, _shortcut, _event| {
         log::info!("Global shortcut triggered");
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.emit("toggle-recording", ());
-        }
+        // Use app.emit() for global event that works even when window is hidden
+        let _ = app_handle.emit("toggle-recording", ());
     }).map_err(|e| format!("Failed to set shortcut handler: {}", e))?;
     
     // Update stored shortcut
@@ -445,9 +444,8 @@ fn setup_global_shortcut(app: &AppHandle, state: &AppState) -> Result<(), Box<dy
     // on_shortcut already registers the shortcut internally, no need to call register() separately
     app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
         log::info!("Global shortcut triggered");
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.emit("toggle-recording", ());
-        }
+        // Use app.emit() for global event that works even when window is hidden
+        let _ = app_handle.emit("toggle-recording", ());
     })?;
     
     // Store current shortcut
@@ -480,10 +478,8 @@ fn setup_tray(app: &AppHandle, state: &AppState) -> Result<(), Box<dyn std::erro
         .tooltip("OpenVoice")
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "record" => {
-                // Emit toggle-recording event to main window
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("toggle-recording", ());
-                }
+                // Emit global toggle-recording event
+                let _ = app.emit("toggle-recording", ());
             }
             "settings" => {
                 if let Some(window) = app.get_webview_window("settings") {
