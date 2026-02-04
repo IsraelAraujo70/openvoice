@@ -26,14 +26,14 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.9);
       border-radius: 16px;
       border: 2px solid #333;
       padding: 20px;
     }
 
     .container.recording {
-      border-color: #00ff00;
+      border-color: #ff4444;
       animation: pulse-border 1s ease-in-out infinite;
     }
 
@@ -50,8 +50,8 @@
     }
 
     @keyframes pulse-border {
-      0%, 100% { border-color: #00ff00; }
-      50% { border-color: #00aa00; }
+      0%, 100% { border-color: #ff4444; }
+      50% { border-color: #aa0000; }
     }
 
     .icon {
@@ -70,12 +70,13 @@
       color: #888;
       font-size: 12px;
       margin-top: 8px;
+      text-align: center;
     }
 
     .recording-dot {
       display: inline-block;
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       background: #ff0000;
       border-radius: 50%;
       margin-right: 8px;
@@ -86,6 +87,16 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }
     }
+
+    .transcription-preview {
+      color: #aaa;
+      font-size: 11px;
+      margin-top: 8px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -93,6 +104,7 @@
     <div class="icon" id="icon">🎙️</div>
     <div class="status" id="status">Ready</div>
     <div class="hint" id="hint">Press shortcut to record</div>
+    <div class="transcription-preview" id="preview"></div>
   </div>
 
   <script>
@@ -104,31 +116,30 @@
     const icon = document.getElementById('icon');
     const status = document.getElementById('status');
     const hint = document.getElementById('hint');
+    const preview = document.getElementById('preview');
 
-    let isRecording = false;
-    let apiKey = '';
     let currentShortcut = 'Ctrl+Shift+V';
     const appWindow = getCurrentWindow();
 
+    // Load config to get shortcut
     async function loadConfig() {
       try {
         const config = await invoke('load_config');
-        apiKey = config.api_key || '';
         currentShortcut = config.shortcut || 'Ctrl+Shift+V';
         if (config.audio_device) {
           await invoke('set_audio_device', { deviceName: config.audio_device });
         }
-        hint.textContent = `Press ${currentShortcut} to record`;
         console.log('Config loaded, shortcut:', currentShortcut);
       } catch (e) {
         console.error('Failed to load config:', e);
       }
     }
 
-    function updateUI(state, message, hintText = '') {
+    function updateUI(state, message, hintText = '', previewText = '') {
       container.className = 'container ' + state;
       status.innerHTML = message;
       hint.textContent = hintText;
+      preview.textContent = previewText;
       
       switch(state) {
         case 'recording':
@@ -148,95 +159,32 @@
       }
     }
 
-    async function updateTrayState(recording) {
-      try {
-        await invoke('update_tray_recording_state', { isRecording: recording });
-      } catch (e) {
-        console.error('Failed to update tray state:', e);
-      }
-    }
+    // Listen for backend events
+    listen('recording-started', () => {
+      console.log('Recording started event received');
+      updateUI('recording', '<span class="recording-dot"></span>Recording...', 'Press Escape to stop');
+    });
 
-    async function toggleRecording() {
-      if (!apiKey) {
-        updateUI('error', 'No API key set', 'Configure in settings');
-        await appWindow.show();
-        await invoke('show_settings');
-        setTimeout(() => appWindow.hide(), 2000);
-        return;
-      }
+    listen('recording-stopped', () => {
+      console.log('Recording stopped event received');
+      updateUI('processing', 'Processing...', 'Stopping recording...');
+    });
 
-      if (isRecording) {
-        await stopAndTranscribe();
-      } else {
-        await startRecording();
-      }
-    }
+    listen('transcription-started', () => {
+      console.log('Transcription started event received');
+      updateUI('processing', 'Transcribing...', 'Sending to AI...');
+    });
 
-    async function startRecording() {
-      try {
-        await appWindow.show();
-        updateUI('recording', '<span class="recording-dot"></span>Recording...', `Press ${currentShortcut} to stop`);
-        
-        await invoke('start_recording');
-        isRecording = true;
-        
-        // Update tray icon to recording state
-        await updateTrayState(true);
-        
-        console.log('Recording started');
-      } catch (e) {
-        console.error('Failed to start recording:', e);
-        updateUI('error', 'Failed to start', e.toString());
-        await updateTrayState(false);
-        setTimeout(() => appWindow.hide(), 2000);
-      }
-    }
+    listen('transcription-complete', (event) => {
+      console.log('Transcription complete:', event.payload);
+      const text = event.payload;
+      const previewText = text.length > 60 ? text.substring(0, 60) + '...' : text;
+      updateUI('success', 'Copied to clipboard!', '', previewText);
+    });
 
-    async function stopAndTranscribe() {
-      try {
-        updateUI('processing', 'Processing...', 'Transcribing audio');
-
-        // Update tray icon back to normal
-        await updateTrayState(false);
-
-        const audioData = await invoke('stop_recording');
-        isRecording = false;
-        console.log('Recording stopped, audio length:', audioData.length);
-
-        updateUI('processing', 'Transcribing...', 'Sending to AI');
-        
-        const transcription = await invoke('transcribe_audio', {
-          audioBase64: audioData,
-          apiKey: apiKey,
-          model: null
-        });
-
-        console.log('Transcription:', transcription);
-
-        await invoke('copy_to_clipboard', { text: transcription });
-
-        updateUI('success', 'Copied!', transcription.substring(0, 50) + (transcription.length > 50 ? '...' : ''));
-        
-        setTimeout(() => {
-          appWindow.hide();
-        }, 1500);
-
-      } catch (e) {
-        console.error('Failed to transcribe:', e);
-        isRecording = false;
-        await updateTrayState(false);
-        updateUI('error', 'Error', e.toString().substring(0, 50));
-        
-        setTimeout(() => {
-          appWindow.hide();
-        }, 3000);
-      }
-    }
-
-    // Listen for toggle-recording event
-    listen('toggle-recording', () => {
-      console.log('Toggle recording event received');
-      toggleRecording();
+    listen('transcription-error', (event) => {
+      console.error('Transcription error:', event.payload);
+      updateUI('error', 'Error', event.payload.substring(0, 50));
     });
 
     // Listen for config updates
@@ -247,7 +195,7 @@
 
     // Initialize
     loadConfig();
-    console.log('OpenVoice initialized');
+    console.log('OpenVoice UI initialized');
   </script>
 </body>
 </html>

@@ -59,6 +59,7 @@ struct ApiError {
 }
 
 /// Transcription client
+#[derive(Clone)]
 pub struct TranscriptionClient {
     client: reqwest::Client,
 }
