@@ -1,0 +1,42 @@
+.box {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.idle {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.recording {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.processing {
+  background: var(--warning-dim);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.success {
+  background: var(--success-dim);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.error {
+  background: var(--error-dim);
+  border-color: var(--error);
+  color: var(--error);
+}

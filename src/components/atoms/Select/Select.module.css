@@ -1,0 +1,74 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.selectContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  display: flex;
+}
+
+.chevron {
+  position: absolute;
+  right: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.select {
+  width: 100%;
+  padding: 12px 40px 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  transition: all 0.15s ease;
+}
+
+.select.withIcon {
+  padding-left: 44px;
+}
+
+.select:focus {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.select:hover:not(:focus) {
+  border-color: var(--text-tertiary);
+}
+
+.select option {
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px;
+}

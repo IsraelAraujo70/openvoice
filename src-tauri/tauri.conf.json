@@ -4,8 +4,10 @@
   "identifier": "com.openvoice.app",
   "version": "0.1.0",
   "build": {
-    "beforeDevCommand": "",
-    "frontendDist": "../src"
+    "beforeDevCommand": "bun run vite:dev",
+    "devUrl": "http://localhost:1421",
+    "beforeBuildCommand": "bun run vite:build",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
@@ -24,15 +26,15 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "visible": false,
+        "visible": true,
         "center": true
       },
       {
         "label": "settings",
         "title": "OpenVoice Settings",
-        "width": 450,
-        "height": 500,
-        "resizable": false,
+        "width": 480,
+        "height": 680,
+        "resizable": true,
         "visible": false,
         "center": true,
         "url": "settings.html",

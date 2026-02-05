@@ -4,8 +4,8 @@ Voice-to-clipboard transcription app using OpenRouter API.
 
 ## Features
 
-- **Global Shortcut**: Press `Ctrl+Shift+R` to start/stop recording
-- **Transparent Overlay**: Full-screen click-through window with visual feedback
+- **One-click Recording**: Start/stop recording from the overlay UI
+- **Floating Overlay**: Minimal window with visual feedback and controls
 - **Auto-clipboard**: Transcribed text is automatically copied to clipboard
 - **Configurable**: Select audio input device and set API key via settings
 
@@ -64,9 +64,9 @@ The built app will be in `src-tauri/target/release/openvoice`
 2. **Configure** - Click the tray icon or use settings to:
    - Enter your OpenRouter API key
    - Select audio input device
-3. **Record** - Press `Ctrl+Shift+R` to start recording
+3. **Record** - Click **Start Recording** in the overlay window
    - A green pulsing border will appear around your screen
-4. **Stop** - Press `Ctrl+Shift+R` again to stop
+4. **Stop** - Click **Stop Recording** to finish
    - The audio will be transcribed and copied to clipboard
 5. **Paste** - Use `Ctrl+V` to paste the transcription anywhere
 
@@ -93,13 +93,6 @@ The built app will be in `src-tauri/target/release/openvoice`
 Make sure you have ALSA installed and your microphone is connected:
 ```bash
 arecord -l
-```
-
-### Global shortcut not working
-
-On Wayland, global shortcuts may require additional permissions. Try running with:
-```bash
-WAYLAND_DISPLAY= ./openvoice  # Force X11
 ```
 
 ### API errors

@@ -1,0 +1,1 @@
+export { RecordingDot } from './RecordingDot'
