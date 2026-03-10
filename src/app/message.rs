@@ -1,4 +1,4 @@
-use iced::{Size, keyboard, window};
+use iced::{keyboard, window, Point, Size};
 
 use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::settings::domain::AppSettings;
@@ -9,6 +9,8 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     MonitorSizeLoaded(Option<Size>),
     KeyEvent(keyboard::Event),
+    StartDrag,
+    WindowMoved(Point),
     OpenSettingsView,
     CloseSettingsView,
     SettingsApiKeyChanged(String),

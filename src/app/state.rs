@@ -3,13 +3,14 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::audio::Recorder;
 use crate::platform::window::MonitorGeometry;
-use iced::{window, Task};
+use iced::{window, Point, Task};
 
 pub struct Overlay {
     pub main_window_id: Option<window::Id>,
     pub passthrough_enabled: bool,
     pub scene: Scene,
     pub primary_monitor: Option<MonitorGeometry>,
+    pub hud_position: Option<Point>,
     pub phase: OverlayPhase,
     pub hint: String,
     pub error: Option<String>,
@@ -96,11 +97,12 @@ pub fn boot() -> (Overlay, Task<Message>) {
             passthrough_enabled: config.start_with_passthrough,
             scene: Scene::Hud,
             primary_monitor,
+            hud_position: None,
             phase: OverlayPhase::Idle,
             hint: if config.start_with_passthrough {
-                String::from("Passthrough ativo. Pressione P para voltar ao modo interativo.")
+                String::from("Passthrough ativo. Pressione P para interagir.")
             } else {
-                String::from("Salve sua chave e clique em Start Recording para transcrever.")
+                String::new()
             },
             error: settings_error.or(missing_api_key),
             preview: None,

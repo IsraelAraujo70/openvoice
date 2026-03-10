@@ -1,5 +1,6 @@
 use crate::app::{Message, Overlay, OverlayPhase};
 use crate::ui::components::chrome_button::{self, ButtonKind};
+use crate::ui::components::drag_handle;
 use crate::ui::components::status_indicator;
 use iced::widget::{column, container, row, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
@@ -24,32 +25,35 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
     };
 
     let info_text = state.error.as_deref().unwrap_or(&state.hint);
+    let has_info = !info_text.is_empty();
     let info_color = if state.error.is_some() {
         Color::from_rgba8(249, 115, 22, 0.72)
     } else {
         Color::from_rgba(1.0, 1.0, 1.0, 0.28)
     };
 
-    let hud = container(
-        column![
-            row![
-                status_indicator::view(status_label, accent),
-                Space::new().width(Length::Fill),
-                chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
-                chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonKind::Ghost),
-                chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
-            ]
-            .spacing(8)
-            .width(Length::Fill)
-            .align_y(Alignment::Center),
-            text(info_text).size(11).color(info_color),
-        ]
-        .spacing(8),
-    )
+    let mut content = column![row![
+        drag_handle::view(),
+        status_indicator::view(status_label, accent),
+        Space::new().width(Length::Fill),
+        chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
+        chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonKind::Ghost),
+        chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
+    ]
+    .spacing(8)
     .width(Length::Fill)
-    .height(Length::Fill)
-    .padding([14, 18])
-    .style(move |_| hud_style(accent));
+    .align_y(Alignment::Center)]
+    .spacing(8);
+
+    if has_info {
+        content = content.push(text(info_text).size(11).color(info_color));
+    }
+
+    let hud = container(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding([14, 18])
+        .style(move |_| hud_style(accent));
 
     container(hud)
         .width(Length::Fill)

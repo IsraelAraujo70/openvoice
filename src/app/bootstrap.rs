@@ -1,5 +1,5 @@
 use crate::app::message::Message;
-use crate::app::state::{Overlay, boot};
+use crate::app::state::{boot, Overlay};
 use crate::app::update::update;
 use crate::platform::window;
 use crate::ui;
@@ -20,5 +20,11 @@ fn subscription(_state: &Overlay) -> iced::Subscription<Message> {
         iced::window::open_events().map(Message::WindowOpened),
         iced::window::close_requests().map(Message::WindowCloseRequested),
         iced::keyboard::listen().map(Message::KeyEvent),
+        iced::event::listen_with(|event, _status, _id| match event {
+            iced::Event::Window(iced::window::Event::Moved(point)) => {
+                Some(Message::WindowMoved(point))
+            }
+            _ => None,
+        }),
     ])
 }

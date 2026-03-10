@@ -135,6 +135,20 @@ fn parse_geometry_token(token: &str) -> Option<MonitorGeometry> {
     })
 }
 
+/// Clamp a HUD position so it stays within the given monitor bounds.
+/// The HUD must remain fully visible — no edge can escape the monitor.
+pub fn clamp_hud_to_monitor(position: Point, monitor: MonitorGeometry) -> Point {
+    let min_x = monitor.position.x;
+    let min_y = monitor.position.y;
+    let max_x = monitor.position.x + monitor.size.width - HUD_WIDTH;
+    let max_y = monitor.position.y + monitor.size.height - HUD_HEIGHT;
+
+    Point::new(
+        position.x.clamp(min_x, max_x),
+        position.y.clamp(min_y, max_y),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_geometry_token, parse_xrandr_listactivemonitors, Point, Size};

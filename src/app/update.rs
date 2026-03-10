@@ -7,7 +7,7 @@ use crate::modules::settings::domain::SettingsForm;
 use crate::platform::audio;
 use crate::platform::window as app_window;
 use iced::keyboard::{self, Key, key::Named};
-use iced::{Task, window};
+use iced::{Point, Task, window};
 
 pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
     match message {
@@ -19,15 +19,15 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
                 if let Some(primary) = state.primary_monitor {
                     let hud = app_window::hud_settings();
+                    let position = match hud.position {
+                        window::Position::Specific(point) => point,
+                        _ => primary.position,
+                    };
+
+                    state.hud_position = Some(position);
 
                     tasks.push(window::resize(id, hud.size));
-                    tasks.push(window::move_to(
-                        id,
-                        match hud.position {
-                            window::Position::Specific(point) => point,
-                            _ => primary.position,
-                        },
-                    ));
+                    tasks.push(window::move_to(id, position));
                     tasks.push(window::set_level(id, window::Level::AlwaysOnTop));
                 } else {
                     tasks.push(window::monitor_size(id).map(Message::MonitorSizeLoaded));
@@ -45,6 +45,29 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::WindowCloseRequested(_id) => Task::done(Message::Quit),
         Message::MonitorSizeLoaded(Some(_size)) => Task::none(),
         Message::MonitorSizeLoaded(None) => Task::none(),
+        Message::StartDrag => state
+            .main_window_id
+            .map_or_else(Task::none, window::drag),
+        Message::WindowMoved(position) => {
+            if !matches!(state.scene, Scene::Hud) {
+                return Task::none();
+            }
+
+            if let Some(monitor) = state.primary_monitor {
+                let clamped = app_window::clamp_hud_to_monitor(position, monitor);
+                state.hud_position = Some(clamped);
+
+                if clamped != position {
+                    return state.main_window_id.map_or_else(Task::none, |id| {
+                        window::move_to(id, clamped)
+                    });
+                }
+            } else {
+                state.hud_position = Some(position);
+            }
+
+            Task::none()
+        }
         Message::KeyEvent(event) => match event {
             keyboard::Event::KeyPressed {
                 key, physical_key, ..
@@ -92,10 +115,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             state.main_window_id.map_or_else(Task::none, |window_id| {
                 let hud = app_window::hud_settings();
-                let position = match hud.position {
+                let default_position = match hud.position {
                     window::Position::Specific(point) => point,
-                    _ => iced::Point::ORIGIN,
+                    _ => Point::ORIGIN,
                 };
+                let position = state.hud_position.unwrap_or(default_position);
                 let passthrough_task = if state.passthrough_enabled {
                     window::enable_mouse_passthrough(window_id)
                 } else {
