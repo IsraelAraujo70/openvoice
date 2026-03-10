@@ -61,9 +61,9 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             container(
                 column![
                     section_title("Runtime"),
-                    status_row("Clipboard", "combined dual transcript after processing"),
-                    status_row("Storage", "settings in ~/.config/openvoice, sessions in ~/.local/share/openvoice"),
-                    status_row("Audio", "dual capture: microphone + system, persisted as WAV per track"),
+                    status_row("Clipboard", "microphone transcript copied after processing"),
+                    status_row("Storage", "settings in ~/.config/openvoice; system capture stays available for a future feature"),
+                    status_row("Audio", "dictation uses microphone only in the current HUD flow"),
                 ]
                 .spacing(12),
             )

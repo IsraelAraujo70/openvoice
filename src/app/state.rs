@@ -1,5 +1,5 @@
 use crate::app::message::Message;
-use crate::modules::audio::application::ActiveCaptureSession;
+use crate::modules::audio::infrastructure::microphone::Recorder;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::window::MonitorGeometry;
@@ -19,7 +19,7 @@ pub struct Overlay {
     pub settings_form: SettingsForm,
     pub is_saving_settings: bool,
     pub settings_note: Option<String>,
-    pub active_capture_session: Option<ActiveCaptureSession>,
+    pub recorder: Option<Recorder>,
 }
 
 impl Overlay {
@@ -110,7 +110,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
             settings_form,
             is_saving_settings: false,
             settings_note: None,
-            active_capture_session: None,
+            recorder: None,
         },
         Task::none(),
     )

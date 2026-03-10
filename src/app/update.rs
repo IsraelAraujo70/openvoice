@@ -1,8 +1,8 @@
 use crate::app::message::Message;
 use crate::app::state::{Overlay, OverlayPhase, Scene};
-use crate::modules::audio::application as audio_application;
+use crate::modules::audio::infrastructure::microphone;
 use crate::modules::dictation::application as dictation_application;
-use crate::modules::dictation::domain::{DictationConfig, TranscriptionJob};
+use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::window as app_window;
@@ -189,14 +189,17 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
-            match audio_application::start_capture_session() {
-                Ok(session) => {
-                    let session_label = session.session_label().to_owned();
+            match microphone::start_default_recording() {
+                Ok(recorder) => {
+                    let device_name = recorder
+                        .device_name()
+                        .unwrap_or("microfone padrao")
+                        .to_owned();
 
-                    state.active_capture_session = Some(session);
+                    state.recorder = Some(recorder);
                     state.phase = OverlayPhase::Recording;
                     state.hint =
-                        format!("REC MIC + SYS ativo ({session_label}). Clique no microfone para parar.");
+                        format!("REC MIC ativo em {device_name}. Clique no microfone para parar.");
                     state.error = None;
                     state.preview = None;
 
@@ -215,19 +218,19 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
-                    state.hint = String::from("Nao consegui iniciar a captura dual do sistema e microfone.");
+                    state.hint = String::from("Nao consegui iniciar a captura do microfone.");
                     state.error = Some(error);
                     Task::none()
                 }
             }
         }
         Message::StopDictation => {
-            let Some(session) = state.active_capture_session.take() else {
+            let Some(recorder) = state.recorder.take() else {
                 return Task::none();
             };
 
-            match audio_application::finish_capture_session(session) {
-                Ok(capture_session) => {
+            match recorder.finish() {
+                Ok(capture_track) => {
                     let Ok(config) = DictationConfig::from_settings(&state.settings) else {
                         state.phase = OverlayPhase::Error;
                         state.hint = String::from("OpenRouter nao configurado.");
@@ -238,24 +241,17 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     };
 
                     state.phase = OverlayPhase::Processing;
-                    state.hint = String::from(
-                        "Enviando trilhas de microfone e system audio para o OpenRouter...",
-                    );
+                    state.hint = String::from("Enviando audio do microfone para o OpenRouter...");
                     state.error = None;
 
                     Task::perform(
-                        async move {
-                            dictation_application::transcribe_session(
-                                config,
-                                TranscriptionJob::new(capture_session),
-                            )
-                        },
+                        async move { dictation_application::transcribe_capture(config, capture_track.audio) },
                         Message::DictationFinished,
                     )
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
-                    state.hint = String::from("A captura dual foi interrompida antes do envio.");
+                    state.hint = String::from("A captura do microfone foi interrompida antes do envio.");
                     state.error = Some(error);
                     Task::none()
                 }
@@ -265,21 +261,15 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             Ok(output) => {
                 state.phase = OverlayPhase::Success;
                 state.hint = format!(
-                    "{:.1}s de audio dual processados. {}",
-                    output.duration_seconds,
-                    output.status_hint()
+                    "{:.1}s de audio do microfone transcritos e enviados para o clipboard.",
+                    output.duration_seconds
                 );
-                state.error = output
-                    .mic_error
-                    .as_ref()
-                    .or(output.system_error.as_ref())
-                    .cloned();
+                state.error = None;
                 state.preview = Some(output.preview());
-                let clipboard_text = output.clipboard_text();
 
                 Task::batch([
-                    iced::clipboard::write(clipboard_text.clone()),
-                    iced::clipboard::write_primary(clipboard_text),
+                    iced::clipboard::write(output.transcript.clone()),
+                    iced::clipboard::write_primary(output.transcript),
                 ])
             }
             Err(error) => {

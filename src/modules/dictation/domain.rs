@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::modules::audio::domain::CaptureSession;
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +40,26 @@ impl DictationConfig {
                 "Transcribe this audio exactly as spoken. Output only the transcription, nothing else. Preserve the original language and do not add formatting or commentary.",
             ),
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DictationOutput {
+    pub transcript: String,
+    pub duration_seconds: f32,
+}
+
+impl DictationOutput {
+    pub fn preview(&self) -> String {
+        let preview = self.transcript.trim();
+
+        if preview.chars().count() <= 160 {
+            return preview.to_owned();
+        }
+
+        let mut shortened = preview.chars().take(157).collect::<String>();
+        shortened.push_str("...");
+        shortened
     }
 }
 
@@ -128,7 +150,17 @@ impl TranscriptionJob {
 
 #[cfg(test)]
 mod tests {
-    use super::DualTranscriptOutput;
+    use super::{DictationOutput, DualTranscriptOutput};
+
+    #[test]
+    fn preview_shortens_single_dictation_output() {
+        let output = DictationOutput {
+            transcript: "a".repeat(200),
+            duration_seconds: 3.0,
+        };
+
+        assert_eq!(output.preview().chars().count(), 160);
+    }
 
     #[test]
     fn builds_clipboard_text_with_both_tracks() {

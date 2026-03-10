@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::modules::audio::domain::{
     CaptureSession, CapturedTrack, SessionArtifacts, SessionMetadata, TrackArtifact,
 };

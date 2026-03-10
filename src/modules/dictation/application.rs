@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+
 use crate::modules::audio::domain::CapturedAudio;
 use crate::modules::dictation::domain::{
-    DictationConfig, DualTranscriptOutput, PreparedAudio, TranscriptionJob, TARGET_SAMPLE_RATE,
+    DictationConfig, DictationOutput, DualTranscriptOutput, PreparedAudio, TranscriptionJob,
+    TARGET_SAMPLE_RATE,
 };
 use crate::modules::dictation::infrastructure;
 use base64::Engine;
@@ -10,7 +13,8 @@ use std::io::Cursor;
 pub fn transcribe_capture(
     config: DictationConfig,
     capture: CapturedAudio,
-) -> Result<String, String> {
+) -> Result<DictationOutput, String> {
+    let duration_seconds = capture.duration_seconds();
     let prepared = prepare_audio(capture)?;
     let transcript = infrastructure::transcribe(&config, &prepared.wav_base64)?;
     let transcript = transcript.trim().to_owned();
@@ -21,7 +25,10 @@ pub fn transcribe_capture(
         ));
     }
 
-    Ok(transcript)
+    Ok(DictationOutput {
+        transcript,
+        duration_seconds,
+    })
 }
 
 pub fn transcribe_session(
@@ -29,8 +36,10 @@ pub fn transcribe_session(
     job: TranscriptionJob,
 ) -> Result<DualTranscriptOutput, String> {
     let session = job.session;
-    let microphone = transcribe_capture(config.clone(), session.microphone.audio.clone());
-    let system = transcribe_capture(config, session.system.audio.clone());
+    let microphone = transcribe_capture(config.clone(), session.microphone.audio.clone())
+        .map(|output| output.transcript);
+    let system =
+        transcribe_capture(config, session.system.audio.clone()).map(|output| output.transcript);
 
     let mic_transcript = microphone.as_ref().ok().cloned();
     let system_transcript = system.as_ref().ok().cloned();

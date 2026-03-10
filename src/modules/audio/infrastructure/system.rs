@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::modules::audio::domain::{AudioSourceKind, CapturedAudio, CapturedTrack};
 use std::io::Read;
 use std::process::{Child, ChildStdout, Command, Stdio};

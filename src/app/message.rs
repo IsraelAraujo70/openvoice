@@ -1,6 +1,6 @@
 use iced::{keyboard, window, Point, Size};
 
-use crate::modules::dictation::domain::DualTranscriptOutput;
+use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::settings::domain::AppSettings;
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ pub enum Message {
     SettingsSaved(Result<AppSettings, String>),
     StartDictation,
     StopDictation,
-    DictationFinished(Result<DualTranscriptOutput, String>),
+    DictationFinished(Result<DictationOutput, String>),
     TogglePassthrough,
     Quit,
 }

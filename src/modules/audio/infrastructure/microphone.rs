@@ -15,6 +15,10 @@ pub struct Recorder {
 }
 
 impl Recorder {
+    pub fn device_name(&self) -> Option<&str> {
+        Some(&self.device_name)
+    }
+
     pub fn finish(self) -> Result<CapturedTrack, String> {
         let Recorder {
             config,
