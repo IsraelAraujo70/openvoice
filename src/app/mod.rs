@@ -5,4 +5,4 @@ mod update;
 
 pub use bootstrap::run;
 pub use message::Message;
-pub use state::Overlay;
+pub use state::{Overlay, OverlayPhase, Scene};

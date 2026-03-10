@@ -1,10 +1,23 @@
 use iced::{Size, keyboard, window};
 
+use crate::modules::dictation::domain::DictationOutput;
+use crate::modules::settings::domain::AppSettings;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     WindowOpened(window::Id),
+    WindowCloseRequested(window::Id),
     MonitorSizeLoaded(Option<Size>),
     KeyEvent(keyboard::Event),
+    OpenSettingsView,
+    CloseSettingsView,
+    SettingsApiKeyChanged(String),
+    SettingsModelChanged(String),
+    SaveSettings,
+    SettingsSaved(Result<AppSettings, String>),
+    StartDictation,
+    StopDictation,
+    DictationFinished(Result<DictationOutput, String>),
     TogglePassthrough,
     Quit,
 }

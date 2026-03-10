@@ -8,6 +8,9 @@ porque o backend Wayland do `winit` nao implementa `always-on-top`.
 
 ## Rodar
 
+Cadastre a OpenRouter API key direto no HUD e clique em `Save Settings`.
+O app salva a chave e o modelo em `~/.config/openvoice/settings.json`.
+
 ```bash
 cargo run
 ```
@@ -29,7 +32,10 @@ OPENVOICE_MOUSE_PASSTHROUGH=0 cargo run
 - transparente
 - sem decorations
 - always-on-top
-- badge pequeno `WIP`
+- HUD com `Start Recording` / `Stop Recording`
+- captura do microfone padrao
+- envio de WAV em base64 para o OpenRouter
+- transcricao copiada para clipboard e primary selection
 - tentativa de `click-through` via `iced::window::enable_mouse_passthrough`
 
 ## Limitações

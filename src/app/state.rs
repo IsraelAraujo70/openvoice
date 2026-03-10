@@ -1,23 +1,73 @@
 use crate::app::message::Message;
+use crate::modules::settings::application as settings_application;
+use crate::modules::settings::domain::{AppSettings, SettingsForm};
+use crate::platform::audio::Recorder;
 use crate::platform::window::MonitorGeometry;
 use iced::{Task, window};
 
-#[derive(Debug, Clone)]
 pub struct Overlay {
-    pub window_id: Option<window::Id>,
+    pub main_window_id: Option<window::Id>,
     pub passthrough_enabled: bool,
-    pub status: &'static str,
+    pub scene: Scene,
     pub primary_monitor: Option<MonitorGeometry>,
+    pub phase: OverlayPhase,
+    pub hint: String,
+    pub error: Option<String>,
+    pub preview: Option<String>,
+    pub settings: AppSettings,
+    pub settings_form: SettingsForm,
+    pub is_saving_settings: bool,
+    pub settings_note: Option<String>,
+    pub recorder: Option<Recorder>,
 }
 
 impl Overlay {
     pub fn title(&self) -> String {
-        if self.passthrough_enabled {
-            String::from("OpenVoice Overlay [passthrough]")
+        if matches!(self.scene, Scene::Settings) {
+            String::from("OpenVoice Settings")
+        } else if self.passthrough_enabled {
+            String::from("OpenVoice HUD [passthrough]")
         } else {
-            String::from("OpenVoice Overlay [interactive]")
+            String::from("OpenVoice HUD [interactive]")
         }
     }
+
+    pub fn status_title(&self) -> &'static str {
+        match self.phase {
+            OverlayPhase::Idle => "Ready",
+            OverlayPhase::Recording => "Recording",
+            OverlayPhase::Processing => "Processing",
+            OverlayPhase::Success => "Copied to clipboard",
+            OverlayPhase::Error => "Error",
+        }
+    }
+
+    pub fn is_recording(&self) -> bool {
+        matches!(self.phase, OverlayPhase::Recording)
+    }
+
+    pub fn is_processing(&self) -> bool {
+        matches!(self.phase, OverlayPhase::Processing)
+    }
+
+    pub fn can_start_dictation(&self) -> bool {
+        self.settings.has_api_key() && !self.is_processing() && !self.is_saving_settings
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayPhase {
+    Idle,
+    Recording,
+    Processing,
+    Success,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scene {
+    Hud,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +81,7 @@ impl OverlayConfig {
             .ok()
             .as_deref()
             .map(|value| matches!(value, "1" | "true" | "TRUE" | "yes" | "on"))
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         Self {
             start_with_passthrough,
@@ -42,17 +92,33 @@ impl OverlayConfig {
 pub fn boot() -> (Overlay, Task<Message>) {
     let config = OverlayConfig::from_env();
     let primary_monitor = crate::platform::window::detect_primary_monitor_geometry();
+    let (settings, settings_error) = match settings_application::load_settings() {
+        Ok(settings) => (settings, None),
+        Err(error) => (AppSettings::default(), Some(error)),
+    };
+    let settings_form = SettingsForm::from(&settings);
+    let missing_api_key = (!settings.has_api_key())
+        .then(|| String::from("Cadastre sua OpenRouter API key no painel de settings abaixo."));
 
     (
         Overlay {
-            window_id: None,
+            main_window_id: None,
             passthrough_enabled: config.start_with_passthrough,
-            status: if config.start_with_passthrough {
-                "Mouse passthrough requested at startup."
-            } else {
-                "Interactive mode. Press P to enable passthrough."
-            },
+            scene: Scene::Hud,
             primary_monitor,
+            phase: OverlayPhase::Idle,
+            hint: if config.start_with_passthrough {
+                String::from("Passthrough ativo. Pressione P para voltar ao modo interativo.")
+            } else {
+                String::from("Salve sua chave e clique em Start Recording para transcrever.")
+            },
+            error: settings_error.or(missing_api_key),
+            preview: None,
+            settings,
+            settings_form,
+            is_saving_settings: false,
+            settings_note: None,
+            recorder: None,
         },
         Task::none(),
     )

@@ -1,13 +1,18 @@
 use iced::{Point, Size, window};
 use std::process::Command;
 
+const HUD_WIDTH: f32 = 228.0;
+const HUD_HEIGHT: f32 = 228.0;
+const SETTINGS_WIDTH: f32 = 540.0;
+const SETTINGS_HEIGHT: f32 = 760.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct MonitorGeometry {
     pub size: Size,
     pub position: Point,
 }
 
-pub fn initial_settings() -> window::Settings {
+pub fn hud_settings() -> window::Settings {
     let primary = detect_primary_monitor_geometry();
 
     window::Settings {
@@ -16,14 +21,63 @@ pub fn initial_settings() -> window::Settings {
         resizable: false,
         level: window::Level::AlwaysOnTop,
         size: primary
-            .map(|monitor| monitor.size)
-            .unwrap_or_else(|| Size::new(1280.0, 720.0)),
+            .map(hud_size)
+            .unwrap_or_else(|| Size::new(HUD_WIDTH, HUD_HEIGHT)),
         position: primary
-            .map(|monitor| window::Position::Specific(monitor.position))
-            .unwrap_or(window::Position::Specific(Point::ORIGIN)),
-        exit_on_close_request: true,
+            .map(|monitor| window::Position::Specific(hud_position(monitor)))
+            .unwrap_or(window::Position::Specific(Point::new(48.0, 48.0))),
+        exit_on_close_request: false,
         ..Default::default()
     }
+}
+
+pub fn settings_window_settings() -> window::Settings {
+    let primary = detect_primary_monitor_geometry();
+
+    window::Settings {
+        decorations: false,
+        transparent: true,
+        resizable: true,
+        level: window::Level::Normal,
+        size: primary
+            .map(settings_size)
+            .unwrap_or_else(|| Size::new(SETTINGS_WIDTH, SETTINGS_HEIGHT)),
+        position: primary
+            .map(|monitor| window::Position::Specific(settings_position(monitor)))
+            .unwrap_or(window::Position::Specific(Point::ORIGIN)),
+        exit_on_close_request: false,
+        ..Default::default()
+    }
+}
+
+fn hud_size(monitor: MonitorGeometry) -> Size {
+    Size::new(
+        HUD_WIDTH.min(monitor.size.width.max(HUD_WIDTH)),
+        HUD_HEIGHT.min(monitor.size.height.max(HUD_HEIGHT)),
+    )
+}
+
+fn hud_position(monitor: MonitorGeometry) -> Point {
+    Point::new(
+        monitor.position.x + (monitor.size.width - HUD_WIDTH).max(32.0) - 32.0,
+        monitor.position.y + 28.0,
+    )
+}
+
+fn settings_size(monitor: MonitorGeometry) -> Size {
+    Size::new(
+        SETTINGS_WIDTH.min((monitor.size.width - 96.0).max(420.0)),
+        SETTINGS_HEIGHT.min((monitor.size.height - 96.0).max(520.0)),
+    )
+}
+
+fn settings_position(monitor: MonitorGeometry) -> Point {
+    let size = settings_size(monitor);
+
+    Point::new(
+        monitor.position.x + ((monitor.size.width - size.width) / 2.0).max(32.0),
+        monitor.position.y + ((monitor.size.height - size.height) / 2.0).max(32.0),
+    )
 }
 
 pub fn detect_primary_monitor_geometry() -> Option<MonitorGeometry> {
