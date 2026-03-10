@@ -53,6 +53,8 @@ pub struct TrackArtifact {
     pub device_name: String,
     pub wav_path: PathBuf,
     pub format: CaptureFormat,
+    pub frame_count: usize,
+    pub status: String,
     pub duration_seconds: f32,
 }
 
@@ -90,6 +92,8 @@ pub struct TrackMetadata {
     pub device_name: String,
     pub wav_path: PathBuf,
     pub format: CaptureFormat,
+    pub frame_count: usize,
+    pub status: String,
     pub duration_seconds: f32,
 }
 
@@ -113,6 +117,8 @@ impl SessionMetadata {
                     device_name: session.microphone_artifact.device_name.clone(),
                     wav_path: session.microphone_artifact.wav_path.clone(),
                     format: session.microphone_artifact.format,
+                    frame_count: session.microphone_artifact.frame_count,
+                    status: session.microphone_artifact.status.clone(),
                     duration_seconds: session.microphone_artifact.duration_seconds,
                 },
                 TrackMetadata {
@@ -120,6 +126,8 @@ impl SessionMetadata {
                     device_name: session.system_artifact.device_name.clone(),
                     wav_path: session.system_artifact.wav_path.clone(),
                     format: session.system_artifact.format,
+                    frame_count: session.system_artifact.frame_count,
+                    status: session.system_artifact.status.clone(),
                     duration_seconds: session.system_artifact.duration_seconds,
                 },
             ],
@@ -129,7 +137,8 @@ impl SessionMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::CapturedAudio;
+    use super::{AudioSourceKind, CaptureFormat, CapturedAudio, TrackArtifact};
+    use std::path::PathBuf;
 
     #[test]
     fn computes_audio_duration() {
@@ -140,5 +149,24 @@ mod tests {
         };
 
         assert_eq!(capture.duration_seconds(), 1.0);
+    }
+
+    #[test]
+    fn preserves_track_artifact_frame_count() {
+        let artifact = TrackArtifact {
+            source: AudioSourceKind::Microphone,
+            device_name: String::from("default"),
+            wav_path: PathBuf::from("/tmp/mic.wav"),
+            format: CaptureFormat {
+                sample_rate: 48_000,
+                channels: 2,
+            },
+            frame_count: 1_024,
+            status: String::from("captured"),
+            duration_seconds: 2.0,
+        };
+
+        assert_eq!(artifact.frame_count, 1_024);
+        assert_eq!(artifact.status, "captured");
     }
 }

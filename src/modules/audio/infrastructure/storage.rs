@@ -44,6 +44,8 @@ pub fn persist_session(
         device_name: microphone.device_name.clone(),
         wav_path: microphone_wav,
         format: microphone.audio.format(),
+        frame_count: microphone.audio.samples.len() / microphone.audio.channels.max(1) as usize,
+        status: String::from("captured"),
         duration_seconds: microphone.duration_seconds(),
     };
     let system_artifact = TrackArtifact {
@@ -51,6 +53,8 @@ pub fn persist_session(
         device_name: system.device_name.clone(),
         wav_path: system_wav,
         format: system.audio.format(),
+        frame_count: system.audio.samples.len() / system.audio.channels.max(1) as usize,
+        status: String::from("captured"),
         duration_seconds: system.duration_seconds(),
     };
 

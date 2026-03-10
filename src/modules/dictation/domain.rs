@@ -125,3 +125,40 @@ impl TranscriptionJob {
         Self { session }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DualTranscriptOutput;
+
+    #[test]
+    fn builds_clipboard_text_with_both_tracks() {
+        let output = DualTranscriptOutput {
+            session_id: String::from("session-1"),
+            mic_transcript: Some(String::from("local note")),
+            system_transcript: Some(String::from("meeting note")),
+            mic_error: None,
+            system_error: None,
+            duration_seconds: 12.0,
+        };
+
+        let clipboard = output.clipboard_text();
+
+        assert!(clipboard.contains("Session: session-1"));
+        assert!(clipboard.contains("System audio"));
+        assert!(clipboard.contains("My voice"));
+    }
+
+    #[test]
+    fn preview_prefers_system_track() {
+        let output = DualTranscriptOutput {
+            session_id: String::from("session-1"),
+            mic_transcript: Some(String::from("local note")),
+            system_transcript: Some(String::from("meeting note")),
+            mic_error: None,
+            system_error: None,
+            duration_seconds: 12.0,
+        };
+
+        assert_eq!(output.preview(), "meeting note");
+    }
+}
