@@ -1,5 +1,6 @@
+use crate::modules::audio::domain::CapturedAudio;
 use crate::modules::dictation::domain::{
-    CapturedAudio, DictationConfig, DictationOutput, PreparedAudio, TARGET_SAMPLE_RATE,
+    DictationConfig, DualTranscriptOutput, PreparedAudio, TranscriptionJob, TARGET_SAMPLE_RATE,
 };
 use crate::modules::dictation::infrastructure;
 use base64::Engine;
@@ -9,7 +10,7 @@ use std::io::Cursor;
 pub fn transcribe_capture(
     config: DictationConfig,
     capture: CapturedAudio,
-) -> Result<DictationOutput, String> {
+) -> Result<String, String> {
     let prepared = prepare_audio(capture)?;
     let transcript = infrastructure::transcribe(&config, &prepared.wav_base64)?;
     let transcript = transcript.trim().to_owned();
@@ -20,10 +21,42 @@ pub fn transcribe_capture(
         ));
     }
 
-    Ok(DictationOutput {
-        transcript,
-        duration_seconds: prepared.duration_seconds,
-    })
+    Ok(transcript)
+}
+
+pub fn transcribe_session(
+    config: DictationConfig,
+    job: TranscriptionJob,
+) -> Result<DualTranscriptOutput, String> {
+    let session = job.session;
+    let microphone = transcribe_capture(config.clone(), session.microphone.audio.clone());
+    let system = transcribe_capture(config, session.system.audio.clone());
+
+    let mic_transcript = microphone.as_ref().ok().cloned();
+    let system_transcript = system.as_ref().ok().cloned();
+    let mic_error = microphone.as_ref().err().cloned();
+    let system_error = system.as_ref().err().cloned();
+
+    if mic_error.is_some() && system_error.is_some() {
+        return Err(format!(
+            "Falha ao transcrever microfone ({}) e system audio ({}).",
+            mic_error.clone().unwrap_or_default(),
+            system_error.clone().unwrap_or_default()
+        ));
+    }
+
+    let output = DualTranscriptOutput {
+        session_id: session.session_id.clone(),
+        mic_transcript,
+        system_transcript,
+        mic_error,
+        system_error,
+        duration_seconds: session.duration_seconds(),
+    };
+
+    infrastructure::save_transcripts(&session, &output)?;
+
+    Ok(output)
 }
 
 fn prepare_audio(capture: CapturedAudio) -> Result<PreparedAudio, String> {
@@ -37,7 +70,6 @@ fn prepare_audio(capture: CapturedAudio) -> Result<PreparedAudio, String> {
 
     Ok(PreparedAudio {
         wav_base64: base64::engine::general_purpose::STANDARD.encode(wav),
-        duration_seconds: capture.duration_seconds(),
     })
 }
 

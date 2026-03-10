@@ -24,7 +24,11 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         OverlayPhase::Error => "ERROR",
     };
 
-    let info_text = state.error.as_deref().unwrap_or(&state.hint);
+    let info_text = state
+        .error
+        .as_deref()
+        .or(state.preview.as_deref())
+        .unwrap_or(&state.hint);
     let has_info = !info_text.is_empty();
     let info_color = if state.error.is_some() {
         Color::from_rgba8(249, 115, 22, 0.72)

@@ -61,9 +61,9 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             container(
                 column![
                     section_title("Runtime"),
-                    status_row("Clipboard", "automatic copy after transcription"),
-                    status_row("Storage", "~/.config/openvoice/settings.json"),
-                    status_row("Audio", "WAV mono 16kHz sent to OpenRouter"),
+                    status_row("Clipboard", "combined dual transcript after processing"),
+                    status_row("Storage", "settings in ~/.config/openvoice, sessions in ~/.local/share/openvoice"),
+                    status_row("Audio", "dual capture: microphone + system, persisted as WAV per track"),
                 ]
                 .spacing(12),
             )
