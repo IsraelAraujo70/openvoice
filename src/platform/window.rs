@@ -1,8 +1,8 @@
-use iced::{Point, Size, window};
+use iced::{window, Point, Size};
 use std::process::Command;
 
-const HUD_WIDTH: f32 = 228.0;
-const HUD_HEIGHT: f32 = 228.0;
+const HUD_WIDTH: f32 = 380.0;
+const HUD_HEIGHT: f32 = 96.0;
 const SETTINGS_WIDTH: f32 = 540.0;
 const SETTINGS_HEIGHT: f32 = 760.0;
 
@@ -137,7 +137,7 @@ fn parse_geometry_token(token: &str) -> Option<MonitorGeometry> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Point, Size, parse_geometry_token, parse_xrandr_listactivemonitors};
+    use super::{parse_geometry_token, parse_xrandr_listactivemonitors, Point, Size};
 
     #[test]
     fn parses_listactivemonitors_primary_output() {

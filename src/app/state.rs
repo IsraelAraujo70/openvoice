@@ -3,7 +3,7 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::audio::Recorder;
 use crate::platform::window::MonitorGeometry;
-use iced::{Task, window};
+use iced::{window, Task};
 
 pub struct Overlay {
     pub main_window_id: Option<window::Id>,
@@ -29,16 +29,6 @@ impl Overlay {
             String::from("OpenVoice HUD [passthrough]")
         } else {
             String::from("OpenVoice HUD [interactive]")
-        }
-    }
-
-    pub fn status_title(&self) -> &'static str {
-        match self.phase {
-            OverlayPhase::Idle => "Ready",
-            OverlayPhase::Recording => "Recording",
-            OverlayPhase::Processing => "Processing",
-            OverlayPhase::Success => "Copied to clipboard",
-            OverlayPhase::Error => "Error",
         }
     }
 

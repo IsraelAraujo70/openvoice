@@ -1,17 +1,12 @@
 use crate::app::{Message, Overlay, OverlayPhase};
-use crate::ui::components::chrome_button::{self, ButtonEmphasis};
-use crate::ui::components::waveform;
-use iced::widget::{Space, column, container, row, text};
+use crate::ui::components::chrome_button::{self, ButtonKind};
+use crate::ui::components::status_indicator;
+use iced::widget::{column, container, row, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
-    let accent = match state.phase {
-        OverlayPhase::Idle => Color::from_rgb8(238, 236, 214),
-        OverlayPhase::Recording => Color::from_rgb8(248, 113, 113),
-        OverlayPhase::Processing => Color::from_rgb8(250, 204, 21),
-        OverlayPhase::Success => Color::from_rgb8(74, 222, 128),
-        OverlayPhase::Error => Color::from_rgb8(251, 146, 60),
-    };
+    let accent = phase_color(state.phase);
+
     let mic_action = if state.is_recording() {
         Some(Message::StopDictation)
     } else if state.can_start_dictation() {
@@ -20,80 +15,70 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         None
     };
 
+    let status_label = match state.phase {
+        OverlayPhase::Idle => "READY",
+        OverlayPhase::Recording => "REC",
+        OverlayPhase::Processing => "WAIT",
+        OverlayPhase::Success => "COPIED",
+        OverlayPhase::Error => "ERROR",
+    };
+
+    let info_text = state.error.as_deref().unwrap_or(&state.hint);
+    let info_color = if state.error.is_some() {
+        Color::from_rgba8(249, 115, 22, 0.72)
+    } else {
+        Color::from_rgba(1.0, 1.0, 1.0, 0.28)
+    };
+
     let hud = container(
         column![
             row![
-                chrome_button::view("✕", Some(Message::Quit), ButtonEmphasis::Neutral),
+                status_indicator::view(status_label, accent),
                 Space::new().width(Length::Fill),
-                chrome_button::view("●", mic_action, ButtonEmphasis::Primary),
+                chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
+                chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonKind::Ghost),
+                chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
             ]
+            .spacing(8)
             .width(Length::Fill)
-            .align_y(Alignment::Start),
-            container(waveform::view(state.status_title(), &state.hint, accent))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill),
-            row![
-                chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonEmphasis::Accent),
-                Space::new().width(Length::Fill),
-                text(match state.phase {
-                    OverlayPhase::Idle => "READY",
-                    OverlayPhase::Recording => "REC",
-                    OverlayPhase::Processing => "WAIT",
-                    OverlayPhase::Success => "COPIED",
-                    OverlayPhase::Error => "ERROR",
-                })
-                .size(12)
-                .color(Color::from_rgba8(226, 232, 240, 0.82)),
-            ]
-            .width(Length::Fill)
-            .align_y(Alignment::End),
-            state
-                .error
-                .as_ref()
-                .map(|error| {
-                    container(text(error).size(12).color(Color::from_rgb8(255, 207, 164)))
-                        .padding([8, 10])
-                        .style(|_| warning_panel())
-                })
-                .unwrap_or_else(|| container(text(""))),
+            .align_y(Alignment::Center),
+            text(info_text).size(11).color(info_color),
         ]
-        .spacing(12),
+        .spacing(8),
     )
     .width(Length::Fill)
     .height(Length::Fill)
-    .padding(18)
-    .style(move |_| {
-        container::Style::default()
-            .background(Background::Color(Color::from_rgba8(8, 10, 14, 0.94)))
-            .border(Border {
-                color: accent.scale_alpha(0.35),
-                width: 1.0,
-                radius: 28.0.into(),
-            })
-            .shadow(Shadow {
-                color: Color::from_rgba8(0, 0, 0, 0.34),
-                offset: iced::Vector::new(0.0, 18.0),
-                blur_radius: 34.0,
-            })
-            .color(Color::from_rgb8(248, 250, 252))
-    });
+    .padding([14, 18])
+    .style(move |_| hud_style(accent));
 
     container(hud)
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(0)
         .into()
 }
 
-fn warning_panel() -> container::Style {
+fn phase_color(phase: OverlayPhase) -> Color {
+    match phase {
+        OverlayPhase::Idle => Color::from_rgba(1.0, 1.0, 1.0, 0.4),
+        OverlayPhase::Recording => Color::from_rgb8(239, 68, 68),
+        OverlayPhase::Processing => Color::from_rgb8(234, 179, 8),
+        OverlayPhase::Success => Color::from_rgb8(34, 197, 94),
+        OverlayPhase::Error => Color::from_rgb8(249, 115, 22),
+    }
+}
+
+fn hud_style(accent: Color) -> container::Style {
     container::Style::default()
-        .background(Background::Color(Color::from_rgba8(120, 53, 15, 0.42)))
+        .background(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.78)))
         .border(Border {
-            color: Color::from_rgba8(251, 146, 60, 0.25),
+            color: accent.scale_alpha(0.12),
             width: 1.0,
             radius: 16.0.into(),
         })
-        .color(Color::from_rgb8(255, 207, 164))
+        .shadow(Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+            offset: iced::Vector::new(0.0, 6.0),
+            blur_radius: 20.0,
+        })
+        .color(Color::WHITE)
 }

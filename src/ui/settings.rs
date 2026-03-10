@@ -1,6 +1,6 @@
 use crate::app::{Message, Overlay};
-use crate::ui::components::chrome_button::{self, ButtonEmphasis};
-use iced::widget::{Space, button, column, container, row, text, text_input};
+use crate::ui::components::chrome_button::{self, ButtonKind};
+use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -23,7 +23,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
                 ]
                 .spacing(4),
                 Space::new().width(Length::Fill),
-                chrome_button::view("✕", Some(Message::CloseSettingsView), ButtonEmphasis::Neutral),
+                chrome_button::view("✕", Some(Message::CloseSettingsView), ButtonKind::Ghost),
             ]
             .width(Length::Fill)
             .align_y(Alignment::Center),

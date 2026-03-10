@@ -1,2 +1,2 @@
 pub mod chrome_button;
-pub mod waveform;
+pub mod status_indicator;
