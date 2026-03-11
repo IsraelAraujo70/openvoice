@@ -1,7 +1,7 @@
 use crate::modules::audio::infrastructure::system;
 use crate::modules::live_transcription::domain::{LiveTranscriptionConfig, RuntimeEvent};
 use base64::Engine;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{Message, WebSocket, connect};
+use tungstenite::{connect, Message, WebSocket};
 
 pub type SharedReceiver = Arc<Mutex<Receiver<RuntimeEvent>>>;
 
