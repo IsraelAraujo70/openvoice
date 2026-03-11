@@ -644,15 +644,22 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                             state.live_partial_transcript.clear();
                         }
 
-                        state.live_partial_transcript.push_str(&delta);
+                        push_live_delta(&mut state.live_partial_transcript, &delta);
                     }
                 }
                 RuntimeEvent::TranscriptCompleted {
                     item_id,
                     transcript,
                 } => {
-                    if !transcript.trim().is_empty() {
-                        state.live_completed_segments.push(transcript.clone());
+                    let final_transcript = resolve_completed_transcript(
+                        &item_id,
+                        &transcript,
+                        state.live_partial_item_id.as_deref(),
+                        &state.live_partial_transcript,
+                    );
+
+                    if !final_transcript.is_empty() {
+                        state.live_completed_segments.push(final_transcript);
                     }
                     state.live_partial_item_id = Some(item_id);
                     state.live_partial_transcript.clear();
@@ -852,5 +859,52 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             iced::exit()
         }
+    }
+}
+
+fn push_live_delta(target: &mut String, delta: &str) {
+    if target.is_empty() {
+        target.push_str(delta.trim_start());
+    } else if target.ends_with(char::is_whitespace) && delta.starts_with(char::is_whitespace) {
+        target.push_str(delta.trim_start());
+    } else {
+        target.push_str(delta);
+    }
+}
+
+fn resolve_completed_transcript(
+    item_id: &str,
+    transcript: &str,
+    partial_item_id: Option<&str>,
+    partial_transcript: &str,
+) -> String {
+    let transcript = transcript.trim();
+    if !transcript.is_empty() {
+        return transcript.to_owned();
+    }
+
+    if partial_item_id == Some(item_id) {
+        return partial_transcript.trim().to_owned();
+    }
+
+    String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{push_live_delta, resolve_completed_transcript};
+
+    #[test]
+    fn appends_delta_without_double_leading_space() {
+        let mut transcript = String::from("hello ");
+        push_live_delta(&mut transcript, " world");
+
+        assert_eq!(transcript, "hello world");
+    }
+
+    #[test]
+    fn falls_back_to_partial_when_completed_is_empty() {
+        let transcript = resolve_completed_transcript("item-1", "", Some("item-1"), "partial text");
+        assert_eq!(transcript, "partial text");
     }
 }
