@@ -1,6 +1,13 @@
-use crate::modules::dictation::domain::DictationConfig;
+#![allow(dead_code)]
+
+use crate::modules::{
+    audio::domain::CaptureSession,
+    dictation::domain::{DictationConfig, DualTranscriptOutput},
+};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -115,6 +122,24 @@ pub fn transcribe(config: &DictationConfig, wav_base64: &str) -> Result<String, 
         .map(|choice| choice.message.content.trim().to_owned())
         .filter(|content| !content.is_empty())
         .ok_or_else(|| String::from("OpenRouter nao retornou transcricao."))
+}
+
+pub fn save_transcripts(
+    session: &CaptureSession,
+    output: &DualTranscriptOutput,
+) -> Result<PathBuf, String> {
+    let path = session.artifacts.session_dir.join("transcripts.json");
+    let contents = serde_json::to_string_pretty(output)
+        .map_err(|error| format!("Falha ao serializar transcricoes: {error}"))?;
+
+    fs::write(&path, contents).map_err(|error| {
+        format!(
+            "Falha ao salvar transcricoes em {}: {error}",
+            path.display()
+        )
+    })?;
+
+    Ok(path)
 }
 
 #[cfg(test)]

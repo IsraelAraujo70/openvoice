@@ -1,4 +1,4 @@
-use crate::modules::dictation::domain::CapturedAudio;
+use crate::modules::audio::domain::{AudioSourceKind, CapturedAudio, CapturedTrack};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SupportedStreamConfig};
 use std::sync::{Arc, Mutex};
@@ -15,17 +15,17 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    pub fn device_name(&self) -> &str {
-        &self.device_name
+    pub fn device_name(&self) -> Option<&str> {
+        Some(&self.device_name)
     }
 
-    pub fn finish(self) -> Result<CapturedAudio, String> {
+    pub fn finish(self) -> Result<CapturedTrack, String> {
         let Recorder {
             config,
             stream,
             samples,
             last_error,
-            ..
+            device_name,
         } = self;
 
         let _ = stream.pause();
@@ -44,10 +44,14 @@ impl Recorder {
             .map_err(|_| String::from("Nao foi possivel finalizar a captura de audio."))?
             .clone();
 
-        Ok(CapturedAudio {
-            samples,
-            sample_rate: config.sample_rate(),
-            channels: config.channels(),
+        Ok(CapturedTrack {
+            source: AudioSourceKind::Microphone,
+            device_name,
+            audio: CapturedAudio {
+                samples,
+                sample_rate: config.sample_rate(),
+                channels: config.channels(),
+            },
         })
     }
 }
