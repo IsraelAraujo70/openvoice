@@ -20,11 +20,11 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             .into();
     }
 
-    // Rolling window: last 2 completed segments.
+    // Rolling window: last 3 completed segments plus the in-flight partial.
     let visible_lines: Vec<&str> = completed
         .iter()
         .rev()
-        .take(2)
+        .take(3)
         .rev()
         .map(|s| s.as_str())
         .collect();
@@ -53,9 +53,10 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
 }
 
 fn subtitle_line(content: &str, is_partial: bool) -> iced::widget::Text<'static> {
-    let alpha = if is_partial { 0.72 } else { 0.95 };
+    let alpha = if is_partial { 0.88 } else { 0.95 };
+    let size = if is_partial { 17 } else { 16 };
     text(content.to_owned())
-        .size(16)
+        .size(size)
         .color(Color::from_rgba(1.0, 1.0, 1.0, alpha))
 }
 

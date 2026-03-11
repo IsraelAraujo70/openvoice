@@ -10,7 +10,8 @@ use std::thread::{self, JoinHandle};
 const SYSTEM_SAMPLE_RATE: u32 = 48_000;
 const SYSTEM_CHANNELS: u16 = 2;
 const LIVE_TARGET_SAMPLE_RATE: u32 = 24_000;
-const LIVE_CHUNK_BYTES: usize = 4_800;
+const LIVE_CHUNK_MS: usize = 40;
+const LIVE_CHUNK_BYTES: usize = (LIVE_TARGET_SAMPLE_RATE as usize * 2 * LIVE_CHUNK_MS) / 1_000;
 
 type SharedSamples = Arc<Mutex<Vec<f32>>>;
 type SharedError = Arc<Mutex<Option<String>>>;

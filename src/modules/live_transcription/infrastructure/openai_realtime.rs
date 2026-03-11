@@ -15,7 +15,7 @@ use tungstenite::{Message, WebSocket, connect};
 
 pub type SharedReceiver = Arc<Mutex<Receiver<RuntimeEvent>>>;
 
-const SOCKET_TIMEOUT_MS: u64 = 50;
+const SOCKET_TIMEOUT_MS: u64 = 20;
 
 pub struct SessionHandle {
     receiver: SharedReceiver,
@@ -294,6 +294,9 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
                 .to_owned();
 
             if !item_id.is_empty() && !delta.is_empty() {
+                if should_log_realtime_deltas() {
+                    eprintln!("[openvoice][realtime][delta] {delta}");
+                }
                 let _ = event_tx.send(RuntimeEvent::TranscriptDelta { item_id, delta });
             }
         }
@@ -336,7 +339,15 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
 }
 
 fn should_log_realtime_transcripts() -> bool {
-    std::env::var("OPENVOICE_LOG_REALTIME_TRANSCRIPTS")
+    flag_from_env("OPENVOICE_LOG_REALTIME_TRANSCRIPTS")
+}
+
+fn should_log_realtime_deltas() -> bool {
+    flag_from_env("OPENVOICE_LOG_REALTIME_DELTAS")
+}
+
+fn flag_from_env(name: &str) -> bool {
+    std::env::var(name)
         .ok()
         .as_deref()
         .map(|value| matches!(value, "1" | "true" | "TRUE" | "yes" | "on"))
