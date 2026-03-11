@@ -2,8 +2,8 @@
 
 use crate::modules::audio::domain::CapturedAudio;
 use crate::modules::dictation::domain::{
-    DictationConfig, DictationOutput, DualTranscriptOutput, PreparedAudio, TranscriptionJob,
-    TARGET_SAMPLE_RATE,
+    DictationConfig, DictationOutput, DualTranscriptOutput, PreparedAudio, TARGET_SAMPLE_RATE,
+    TranscriptionJob,
 };
 use crate::modules::dictation::infrastructure;
 use base64::Engine;

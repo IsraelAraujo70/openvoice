@@ -1,5 +1,5 @@
 use crate::app::message::Message;
-use crate::app::state::{Overlay, OverlayPhase, Scene};
+use crate::app::state::{Overlay, OverlayPhase};
 use crate::modules::audio::infrastructure::microphone;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
@@ -7,6 +7,7 @@ use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
 use crate::modules::live_transcription::domain::RuntimeEvent;
+use crate::modules::live_transcription::infrastructure::db;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::window as app_window;
@@ -15,6 +16,9 @@ use iced::{Point, Task, window};
 
 pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
     match message {
+        // ------------------------------------------------------------------ //
+        // Window lifecycle
+        // ------------------------------------------------------------------ //
         Message::WindowOpened(id) => {
             if state.main_window_id.is_none() {
                 state.main_window_id = Some(id);
@@ -46,12 +50,28 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             Task::none()
         }
-        Message::WindowCloseRequested(_id) => Task::done(Message::Quit),
+
+        Message::WindowCloseRequested(id) => {
+            // Only quit if the main HUD window requests close.
+            // Secondary windows (subtitle, sessions) just close themselves.
+            if state.main_window_id == Some(id) {
+                Task::done(Message::Quit)
+            } else if state.sessions_window_id == Some(id) {
+                Task::done(Message::CloseSessionsView)
+            } else {
+                // subtitle has no decorations so this shouldn't fire,
+                // but handle gracefully anyway.
+                Task::none()
+            }
+        }
+
         Message::MonitorSizeLoaded(Some(_size)) => Task::none(),
         Message::MonitorSizeLoaded(None) => Task::none(),
+
         Message::StartDrag => state.main_window_id.map_or_else(Task::none, window::drag),
+
         Message::WindowMoved(position) => {
-            if !matches!(state.scene, Scene::Hud) {
+            if state.settings_open {
                 return Task::none();
             }
 
@@ -70,11 +90,15 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             Task::none()
         }
+
+        // ------------------------------------------------------------------ //
+        // Input events
+        // ------------------------------------------------------------------ //
         Message::KeyEvent(event) => match event {
             keyboard::Event::KeyPressed {
                 key, physical_key, ..
             } => match key.as_ref() {
-                Key::Named(Named::Escape) if matches!(state.scene, Scene::Settings) => {
+                Key::Named(Named::Escape) if state.settings_open => {
                     Task::done(Message::CloseSettingsView)
                 }
                 Key::Named(Named::Escape) => Task::done(Message::Quit),
@@ -85,6 +109,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             },
             _ => Task::none(),
         },
+
+        // ------------------------------------------------------------------ //
+        // Settings navigation
+        // ------------------------------------------------------------------ //
         Message::OpenSettingsView => {
             if state.is_recording() || state.is_processing() {
                 state.error = Some(String::from(
@@ -93,7 +121,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
-            state.scene = Scene::Settings;
+            state.settings_open = true;
             state.error = None;
 
             state.main_window_id.map_or_else(Task::none, |window_id| {
@@ -111,8 +139,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 ])
             })
         }
+
         Message::CloseSettingsView => {
-            state.scene = Scene::Hud;
+            state.settings_open = false;
             state.error = None;
 
             state.main_window_id.map_or_else(Task::none, |window_id| {
@@ -136,6 +165,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 ])
             })
         }
+
+        // ------------------------------------------------------------------ //
+        // Settings form
+        // ------------------------------------------------------------------ //
         Message::SettingsApiKeyChanged(value) => {
             state.settings_form.openrouter_api_key = value;
             Task::none()
@@ -156,6 +189,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openai_realtime_language = value;
             Task::none()
         }
+        Message::SettingsOpenAiRealtimeProfileChanged(value) => {
+            state.settings_form.openai_realtime_profile = value;
+            Task::none()
+        }
         Message::SaveSettings => {
             state.is_saving_settings = true;
             state.settings_note = Some(String::from("Salvando settings..."));
@@ -166,6 +203,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             let openrouter_model = state.settings_form.openrouter_model.clone();
             let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
             let openai_realtime_language = state.settings_form.openai_realtime_language.clone();
+            let openai_realtime_profile = state.settings_form.openai_realtime_profile.clone();
 
             Task::perform(
                 async move {
@@ -175,6 +213,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         openrouter_model,
                         openai_realtime_model,
                         openai_realtime_language,
+                        openai_realtime_profile,
                     )
                 },
                 Message::SettingsSaved,
@@ -206,6 +245,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
             }
         }
+
+        // ------------------------------------------------------------------ //
+        // OpenAI OAuth
+        // ------------------------------------------------------------------ //
         Message::StartOpenAiOAuthLogin => {
             state.is_openai_authenticating = true;
             state.settings_note = Some(String::from(
@@ -346,6 +389,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
             }
         }
+
+        // ------------------------------------------------------------------ //
+        // Dictation (mic → OpenRouter)
+        // ------------------------------------------------------------------ //
         Message::StartDictation => {
             if !state.can_start_dictation() {
                 state.phase = OverlayPhase::Error;
@@ -448,6 +495,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 Task::none()
             }
         },
+
+        // ------------------------------------------------------------------ //
+        // Realtime transcription (system audio → OpenAI Realtime API)
+        // ------------------------------------------------------------------ //
         Message::StartRealtimeTranscription => {
             if !state.can_start_realtime_transcription() {
                 state.phase = OverlayPhase::Error;
@@ -464,6 +515,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             match live_transcription_application::start_live_transcription(&state.settings) {
                 Ok(session) => {
                     let receiver = session.receiver();
+                    let started_at = db::now_iso();
                     state.live_transcription = Some(session);
                     state.phase = OverlayPhase::Recording;
                     state.hint = String::from(
@@ -474,11 +526,35 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.live_partial_item_id = None;
                     state.live_partial_transcript.clear();
                     state.live_completed_segments.clear();
+                    state.subtitle_closing = false;
+                    state.live_session_started_at = Some(started_at.clone());
+                    state.live_session_db_id = None;
+                    state.live_session_creating = true;
+                    state.live_session_finalizing = false;
+                    state.live_session_stopped_at = None;
+                    state.live_segments_persisting = false;
+                    state.live_persisted_segment_count = 0;
 
-                    Task::perform(
-                        async move { live_transcription_application::poll_next_event(receiver) },
-                        Message::RealtimeEventReceived,
-                    )
+                    // Open the subtitle window
+                    let subtitle_settings =
+                        app_window::subtitle_window_settings(state.primary_monitor);
+                    let (_, open_subtitle) = window::open(subtitle_settings);
+                    let language = Some(state.settings.openai_realtime_language.clone())
+                        .filter(|value| !value.trim().is_empty());
+                    let model = Some(state.settings.openai_realtime_model.clone())
+                        .filter(|value| !value.trim().is_empty());
+
+                    Task::batch([
+                        open_subtitle.map(Message::SubtitleWindowOpened),
+                        Task::perform(
+                            async move { db::create_live_session(started_at, language, model) },
+                            Message::LiveSessionCreated,
+                        ),
+                        Task::perform(
+                            async move { live_transcription_application::poll_next_event(receiver) },
+                            Message::RealtimeEventReceived,
+                        ),
+                    ])
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
@@ -488,6 +564,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
             }
         }
+
         Message::StopRealtimeTranscription => {
             if let Some(session) = state.live_transcription.take() {
                 session.stop();
@@ -498,9 +575,55 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.error = None;
             state.live_partial_item_id = None;
             state.live_partial_transcript.clear();
-            state.live_completed_segments.clear();
-            Task::none()
+            // Do NOT clear live_completed_segments yet — subtitle stays visible for 3s.
+            state.subtitle_closing = true;
+            state.live_session_stopped_at = Some(db::now_iso());
+
+            // Close subtitle after 3 seconds
+            let close_task = Task::perform(
+                async {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                },
+                |_| Message::CloseSubtitleWindow,
+            );
+
+            let persist_task = queue_live_persistence(state);
+            Task::batch([persist_task, close_task])
         }
+
+        // ------------------------------------------------------------------ //
+        // Subtitle window
+        // ------------------------------------------------------------------ //
+        Message::SubtitleWindowOpened(id) => {
+            state.subtitle_window_id = Some(id);
+            Task::batch([
+                window::set_level(id, window::Level::AlwaysOnTop),
+                window::enable_mouse_passthrough(id),
+            ])
+        }
+
+        Message::CloseSubtitleWindow => {
+            state.subtitle_closing = false;
+            state.live_partial_transcript.clear();
+
+            if state.live_transcription.is_none()
+                && !state.live_session_creating
+                && !state.live_segments_persisting
+                && !state.live_session_finalizing
+            {
+                state.live_completed_segments.clear();
+            }
+
+            if let Some(id) = state.subtitle_window_id.take() {
+                window::close(id)
+            } else {
+                Task::none()
+            }
+        }
+
+        // ------------------------------------------------------------------ //
+        // Realtime events
+        // ------------------------------------------------------------------ //
         Message::RealtimeEventReceived(event) => {
             let Some(event) = event else {
                 state.live_transcription = None;
@@ -508,11 +631,24 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 state.hint = String::from("Realtime transcription encerrada.");
                 state.live_partial_item_id = None;
                 state.live_partial_transcript.clear();
-                state.live_completed_segments.clear();
-                return Task::none();
+                // Keep segments for subtitle fade-out
+                state.subtitle_closing = true;
+                if state.live_session_stopped_at.is_none() {
+                    state.live_session_stopped_at = Some(db::now_iso());
+                }
+
+                let close_task = Task::perform(
+                    async {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                    },
+                    |_| Message::CloseSubtitleWindow,
+                );
+                let persist_task = queue_live_persistence(state);
+                return Task::batch([persist_task, close_task]);
             };
 
             let mut continue_polling = state.live_transcription.is_some();
+            let mut tasks = Vec::new();
 
             match event {
                 RuntimeEvent::Connected => {
@@ -528,15 +664,23 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                             state.live_partial_transcript.clear();
                         }
 
-                        state.live_partial_transcript.push_str(&delta);
+                        push_live_delta(&mut state.live_partial_transcript, &delta);
                     }
                 }
                 RuntimeEvent::TranscriptCompleted {
                     item_id,
                     transcript,
                 } => {
-                    if !transcript.trim().is_empty() {
-                        state.live_completed_segments.push(transcript.clone());
+                    let final_transcript = resolve_completed_transcript(
+                        &item_id,
+                        &transcript,
+                        state.live_partial_item_id.as_deref(),
+                        &state.live_partial_transcript,
+                    );
+
+                    if !final_transcript.is_empty() {
+                        state.live_completed_segments.push(final_transcript);
+                        tasks.push(queue_pending_live_segments(state));
                     }
                     state.live_partial_item_id = Some(item_id);
                     state.live_partial_transcript.clear();
@@ -550,12 +694,16 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.phase = OverlayPhase::Error;
                     state.live_partial_item_id = None;
                     state.live_partial_transcript.clear();
-                    state.live_completed_segments.clear();
+                    state.subtitle_closing = true;
                     continue_polling = false;
+                    if state.live_session_stopped_at.is_none() {
+                        state.live_session_stopped_at = Some(db::now_iso());
+                    }
 
                     if let Some(session) = state.live_transcription.take() {
                         session.stop();
                     }
+                    tasks.push(queue_live_persistence(state));
                 }
                 RuntimeEvent::Stopped => {
                     state.live_transcription = None;
@@ -564,23 +712,192 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.error = None;
                     state.live_partial_item_id = None;
                     state.live_partial_transcript.clear();
-                    state.live_completed_segments.clear();
+                    // Keep segments for subtitle fade-out
+                    state.subtitle_closing = true;
                     continue_polling = false;
+                    if state.live_session_stopped_at.is_none() {
+                        state.live_session_stopped_at = Some(db::now_iso());
+                    }
+                    tasks.push(queue_live_persistence(state));
                 }
             }
 
             if continue_polling {
                 if let Some(session) = state.live_transcription.as_ref() {
                     let receiver = session.receiver();
-                    return Task::perform(
+                    tasks.push(Task::perform(
                         async move { live_transcription_application::poll_next_event(receiver) },
                         Message::RealtimeEventReceived,
-                    );
+                    ));
                 }
             }
 
+            if tasks.is_empty() {
+                Task::none()
+            } else {
+                Task::batch(tasks)
+            }
+        }
+
+        // ------------------------------------------------------------------ //
+        // Live transcription persistence
+        // ------------------------------------------------------------------ //
+        Message::LiveSessionCreated(result) => match result {
+            Ok(session_id) => {
+                state.live_session_creating = false;
+                state.live_session_db_id = Some(session_id);
+                queue_live_persistence(state)
+            }
+            Err(err) => {
+                state.live_session_creating = false;
+                state.live_session_db_id = None;
+                state.error = Some(format!("Erro ao iniciar sessao realtime local: {err}"));
+                Task::none()
+            }
+        },
+        Message::LiveSessionSegmentsPersisted(result) => {
+            state.live_segments_persisting = false;
+
+            match result {
+                Ok(persisted_count) => {
+                    state.live_persisted_segment_count =
+                        state.live_persisted_segment_count.max(persisted_count);
+                    queue_live_persistence(state)
+                }
+                Err(err) => {
+                    state.error = Some(format!("Erro ao persistir segmento realtime: {err}"));
+                    Task::none()
+                }
+            }
+        }
+        Message::LiveSessionFinalized(result) => {
+            state.live_session_finalizing = false;
+
+            match result {
+                Ok(()) => {
+                    state.live_session_db_id = None;
+                    state.live_session_stopped_at = None;
+                    state.live_session_started_at = None;
+                    state.live_session_creating = false;
+                    state.live_persisted_segment_count = state.live_completed_segments.len();
+
+                    if state.live_transcription.is_none() {
+                        state.hint = String::from("Sessao realtime salva.");
+                    }
+
+                    if state.subtitle_window_id.is_none() {
+                        state.live_completed_segments.clear();
+                    }
+
+                    Task::none()
+                }
+                Err(err) => {
+                    state.error = Some(format!("Erro ao finalizar sessao realtime: {err}"));
+                    Task::none()
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ //
+        // Sessions window
+        // ------------------------------------------------------------------ //
+        Message::OpenSessionsView => {
+            if state.sessions_window_id.is_some() {
+                // Already open — focus it
+                return Task::none();
+            }
+
+            state.sessions_loading = true;
+            state.sessions_error = None;
+
+            let sessions_settings = app_window::sessions_window_settings(state.primary_monitor);
+            let (_, open_sessions) = window::open(sessions_settings);
+
+            Task::batch([
+                open_sessions.map(Message::SessionsWindowOpened),
+                Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
+            ])
+        }
+
+        Message::SessionsWindowOpened(id) => {
+            state.sessions_window_id = Some(id);
+            window::set_level(id, window::Level::Normal)
+        }
+
+        Message::CloseSessionsView => {
+            state.sessions_list.clear();
+            state.sessions_error = None;
+            state.sessions_loading = false;
+            state.selected_session_id = None;
+            state.selected_session_segments.clear();
+            state.selected_session_loading = false;
+
+            if let Some(id) = state.sessions_window_id.take() {
+                window::close(id)
+            } else {
+                Task::none()
+            }
+        }
+
+        Message::SessionsLoaded(result) => {
+            state.sessions_loading = false;
+            match result {
+                Ok(sessions) => {
+                    state.sessions_list = sessions;
+                    state.sessions_error = None;
+                }
+                Err(err) => {
+                    state.sessions_error = Some(err);
+                }
+            }
             Task::none()
         }
+
+        Message::SessionSelected(id) => {
+            // id == 0 is a sentinel for "deselect"
+            if id == 0 || state.selected_session_id == Some(id) {
+                state.selected_session_id = None;
+                state.selected_session_segments.clear();
+                return Task::none();
+            }
+
+            state.selected_session_id = Some(id);
+            state.selected_session_loading = true;
+            state.selected_session_segments.clear();
+
+            Task::perform(
+                async move { db::get_session_segments(id) },
+                Message::SessionDetailLoaded,
+            )
+        }
+
+        Message::SessionDetailLoaded(result) => {
+            state.selected_session_loading = false;
+            match result {
+                Ok(segments) => {
+                    state.selected_session_segments = segments;
+                }
+                Err(err) => {
+                    state.error = Some(format!("Erro ao carregar segmentos: {err}"));
+                }
+            }
+            Task::none()
+        }
+
+        Message::CopySessionTranscript => {
+            let transcript = state.selected_session_segments.join(" ");
+            if transcript.is_empty() {
+                return Task::none();
+            }
+            Task::batch([
+                iced::clipboard::write(transcript.clone()),
+                iced::clipboard::write_primary(transcript),
+            ])
+        }
+
+        // ------------------------------------------------------------------ //
+        // Window behavior
+        // ------------------------------------------------------------------ //
         Message::TogglePassthrough => {
             if !state.passthrough_enabled
                 && (state.is_recording() || state.is_processing() || state.is_live_transcribing())
@@ -611,18 +928,118 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 ])
             })
         }
-        Message::Quit => {
-            let mut tasks = Vec::new();
 
+        Message::Quit => {
             if let Some(session) = state.live_transcription.take() {
                 session.stop();
             }
 
-            if let Some(window_id) = state.main_window_id.take() {
-                tasks.push(window::close(window_id));
-            }
-
-            Task::batch(tasks)
+            iced::exit()
         }
+    }
+}
+
+fn push_live_delta(target: &mut String, delta: &str) {
+    if target.is_empty() {
+        target.push_str(delta.trim_start());
+    } else if target.ends_with(char::is_whitespace) && delta.starts_with(char::is_whitespace) {
+        target.push_str(delta.trim_start());
+    } else {
+        target.push_str(delta);
+    }
+}
+
+fn resolve_completed_transcript(
+    item_id: &str,
+    transcript: &str,
+    partial_item_id: Option<&str>,
+    partial_transcript: &str,
+) -> String {
+    let transcript = transcript.trim();
+    if !transcript.is_empty() {
+        return transcript.to_owned();
+    }
+
+    if partial_item_id == Some(item_id) {
+        return partial_transcript.trim().to_owned();
+    }
+
+    String::new()
+}
+
+fn queue_live_persistence(state: &mut Overlay) -> Task<Message> {
+    if state.live_session_db_id.is_some()
+        && !state.live_segments_persisting
+        && state.live_persisted_segment_count < state.live_completed_segments.len()
+    {
+        return queue_pending_live_segments(state);
+    }
+
+    queue_finalize_live_session(state)
+}
+
+fn queue_pending_live_segments(state: &mut Overlay) -> Task<Message> {
+    if state.live_segments_persisting {
+        return Task::none();
+    }
+
+    let Some(session_id) = state.live_session_db_id else {
+        return Task::none();
+    };
+
+    let start = state.live_persisted_segment_count;
+    if start >= state.live_completed_segments.len() {
+        return Task::none();
+    }
+
+    state.live_segments_persisting = true;
+    let segments = state.live_completed_segments[start..].to_vec();
+
+    Task::perform(
+        async move { db::append_live_segments(session_id, start, segments) },
+        Message::LiveSessionSegmentsPersisted,
+    )
+}
+
+fn queue_finalize_live_session(state: &mut Overlay) -> Task<Message> {
+    if state.live_session_finalizing
+        || state.live_session_creating
+        || state.live_segments_persisting
+        || state.live_persisted_segment_count < state.live_completed_segments.len()
+    {
+        return Task::none();
+    }
+
+    let Some(session_id) = state.live_session_db_id else {
+        return Task::none();
+    };
+    let Some(stopped_at) = state.live_session_stopped_at.clone() else {
+        return Task::none();
+    };
+
+    state.live_session_finalizing = true;
+
+    Task::perform(
+        async move { db::finalize_live_session(session_id, stopped_at) },
+        Message::LiveSessionFinalized,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{push_live_delta, resolve_completed_transcript};
+
+    #[test]
+    fn appends_delta_without_double_leading_space() {
+        let mut transcript = String::from("hello ");
+        push_live_delta(&mut transcript, " world");
+
+        assert_eq!(transcript, "hello world");
+    }
+
+    #[test]
+    fn falls_back_to_partial_when_completed_is_empty() {
+        let transcript = resolve_completed_transcript("item-1", "", Some("item-1"), "partial text");
+        assert_eq!(transcript, "partial text");
     }
 }

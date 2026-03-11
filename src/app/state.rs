@@ -3,46 +3,71 @@ use crate::modules::audio::infrastructure::microphone::Recorder;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::PendingOpenAiOAuthFlow;
 use crate::modules::live_transcription::application::ActiveLiveTranscription;
+use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
+use crate::platform::window as platform_window;
 use crate::platform::window::MonitorGeometry;
 use iced::{Point, Task, window};
 
 pub struct Overlay {
+    // Window IDs
     pub main_window_id: Option<window::Id>,
+    pub subtitle_window_id: Option<window::Id>,
+    pub sessions_window_id: Option<window::Id>,
+
+    // HUD state
     pub passthrough_enabled: bool,
-    pub scene: Scene,
+    pub settings_open: bool,
     pub primary_monitor: Option<MonitorGeometry>,
     pub hud_position: Option<Point>,
     pub phase: OverlayPhase,
     pub hint: String,
     pub error: Option<String>,
     pub preview: Option<String>,
+
+    // Settings
     pub settings: AppSettings,
     pub settings_form: SettingsForm,
     pub is_saving_settings: bool,
+    pub settings_note: Option<String>,
+
+    // Auth (OpenAI OAuth)
     pub is_openai_authenticating: bool,
     pub pending_openai_oauth: Option<PendingOpenAiOAuthFlow>,
     pub openai_callback_url_input: String,
-    pub settings_note: Option<String>,
-    pub recorder: Option<Recorder>,
-    pub live_transcription: Option<ActiveLiveTranscription>,
     pub has_openai_credentials: bool,
     pub openai_account_label: Option<String>,
+
+    // Dictation (mic recording)
+    pub recorder: Option<Recorder>,
+
+    // Live transcription (system audio streaming)
+    pub live_transcription: Option<ActiveLiveTranscription>,
+    pub live_session_started_at: Option<String>,
+    pub live_session_db_id: Option<i64>,
+    pub live_session_creating: bool,
+    pub live_session_finalizing: bool,
+    pub live_session_stopped_at: Option<String>,
+    pub live_segments_persisting: bool,
+    pub live_persisted_segment_count: usize,
     pub live_partial_item_id: Option<String>,
     pub live_partial_transcript: String,
     pub live_completed_segments: Vec<String>,
+    pub subtitle_closing: bool,
+
+    // Sessions view
+    pub sessions_list: Vec<SessionSummary>,
+    pub sessions_loading: bool,
+    pub sessions_error: Option<String>,
+    pub selected_session_id: Option<i64>,
+    pub selected_session_segments: Vec<String>,
+    pub selected_session_loading: bool,
 }
 
 impl Overlay {
-    pub fn title(&self) -> String {
-        if matches!(self.scene, Scene::Settings) {
-            String::from("OpenVoice Settings")
-        } else if self.passthrough_enabled {
-            String::from("OpenVoice HUD [passthrough]")
-        } else {
-            String::from("OpenVoice HUD [interactive]")
-        }
+    pub fn title(&self, _window: window::Id) -> String {
+        String::from("OpenVoice")
     }
 
     pub fn is_recording(&self) -> bool {
@@ -87,12 +112,6 @@ pub enum OverlayPhase {
     Error,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scene {
-    Hud,
-    Settings,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct OverlayConfig {
     pub start_with_passthrough: bool,
@@ -114,7 +133,7 @@ impl OverlayConfig {
 
 pub fn boot() -> (Overlay, Task<Message>) {
     let config = OverlayConfig::from_env();
-    let primary_monitor = crate::platform::window::detect_primary_monitor_geometry();
+    let primary_monitor = platform_window::detect_primary_monitor_geometry();
     let (settings, settings_error) = match settings_application::load_settings() {
         Ok(settings) => (settings, None),
         Err(error) => (AppSettings::default(), Some(error)),
@@ -125,36 +144,54 @@ pub fn boot() -> (Overlay, Task<Message>) {
     let missing_api_key = (!settings.has_api_key())
         .then(|| String::from("Cadastre sua OpenRouter API key no painel de settings abaixo."));
 
-    (
-        Overlay {
-            main_window_id: None,
-            passthrough_enabled: config.start_with_passthrough,
-            scene: Scene::Hud,
-            primary_monitor,
-            hud_position: None,
-            phase: OverlayPhase::Idle,
-            hint: if config.start_with_passthrough {
-                String::from("Passthrough ativo. Pressione P para interagir.")
-            } else {
-                String::new()
-            },
-            error: settings_error.or(missing_api_key),
-            preview: None,
-            settings,
-            settings_form,
-            is_saving_settings: false,
-            is_openai_authenticating: false,
-            pending_openai_oauth: None,
-            openai_callback_url_input: String::new(),
-            settings_note: None,
-            recorder: None,
-            live_transcription: None,
-            has_openai_credentials: auth_snapshot.is_authenticated,
-            openai_account_label: auth_snapshot.account_label,
-            live_partial_item_id: None,
-            live_partial_transcript: String::new(),
-            live_completed_segments: Vec::new(),
+    let state = Overlay {
+        main_window_id: None,
+        subtitle_window_id: None,
+        sessions_window_id: None,
+        passthrough_enabled: config.start_with_passthrough,
+        settings_open: false,
+        primary_monitor,
+        hud_position: None,
+        phase: OverlayPhase::Idle,
+        hint: if config.start_with_passthrough {
+            String::from("Passthrough ativo. Pressione P para interagir.")
+        } else {
+            String::new()
         },
-        Task::none(),
-    )
+        error: settings_error.or(missing_api_key),
+        preview: None,
+        settings,
+        settings_form,
+        is_saving_settings: false,
+        is_openai_authenticating: false,
+        pending_openai_oauth: None,
+        openai_callback_url_input: String::new(),
+        has_openai_credentials: auth_snapshot.is_authenticated,
+        openai_account_label: auth_snapshot.account_label,
+        settings_note: None,
+        recorder: None,
+        live_transcription: None,
+        live_session_started_at: None,
+        live_session_db_id: None,
+        live_session_creating: false,
+        live_session_finalizing: false,
+        live_session_stopped_at: None,
+        live_segments_persisting: false,
+        live_persisted_segment_count: 0,
+        live_partial_item_id: None,
+        live_partial_transcript: String::new(),
+        live_completed_segments: Vec::new(),
+        subtitle_closing: false,
+        sessions_list: Vec::new(),
+        sessions_loading: false,
+        sessions_error: None,
+        selected_session_id: None,
+        selected_session_segments: Vec::new(),
+        selected_session_loading: false,
+    };
+
+    // With iced::daemon, we must open the initial window manually.
+    let (_, open_hud) = window::open(platform_window::hud_settings());
+
+    (state, open_hud.map(Message::WindowOpened))
 }
