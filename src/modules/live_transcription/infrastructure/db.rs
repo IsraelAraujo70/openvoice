@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -59,7 +59,9 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
             item_id      TEXT NOT NULL DEFAULT '',
             transcript   TEXT NOT NULL,
             completed_at TEXT NOT NULL
-        );",
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_lt_segments_session_position
+        ON lt_segments(session_id, position);",
     )
     .map_err(|e| format!("Nao consegui criar o schema SQLite: {e}"))
 }
@@ -68,6 +70,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
 // Write
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn save_session(
     segments: Vec<String>,
     started_at: String,
@@ -75,35 +78,90 @@ pub fn save_session(
     language: Option<String>,
     model: Option<String>,
 ) -> Result<i64, String> {
+    let session_id = create_live_session(started_at, language, model)?;
+    append_live_segments(session_id, 0, segments)?;
+    finalize_live_session(session_id, stopped_at)?;
+    Ok(session_id)
+}
+
+pub fn create_live_session(
+    started_at: String,
+    language: Option<String>,
+    model: Option<String>,
+) -> Result<i64, String> {
     let conn = open_db()?;
     ensure_schema(&conn)?;
 
     conn.execute(
-        "INSERT INTO lt_sessions (started_at, stopped_at, language, model, segment_count)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            started_at,
-            stopped_at,
-            language,
-            model,
-            segments.len() as i64
-        ],
+        "INSERT INTO lt_sessions (started_at, language, model, segment_count)
+         VALUES (?1, ?2, ?3, 0)",
+        params![started_at, language, model],
     )
-    .map_err(|e| format!("Nao consegui inserir a sessao: {e}"))?;
+    .map_err(|e| format!("Nao consegui inserir a sessao realtime: {e}"))?;
 
-    let session_id = conn.last_insert_rowid();
-    let now = now_iso();
+    Ok(conn.last_insert_rowid())
+}
 
-    for (i, transcript) in segments.iter().enumerate() {
-        conn.execute(
-            "INSERT INTO lt_segments (session_id, position, item_id, transcript, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![session_id, i as i64, "", transcript, now],
-        )
-        .map_err(|e| format!("Nao consegui inserir o segmento {i}: {e}"))?;
+pub fn append_live_segments(
+    session_id: i64,
+    start_position: usize,
+    segments: Vec<String>,
+) -> Result<usize, String> {
+    if segments.is_empty() {
+        return Ok(start_position);
     }
 
-    Ok(session_id)
+    let mut conn = open_db()?;
+    ensure_schema(&conn)?;
+    let transaction = conn
+        .transaction()
+        .map_err(|e| format!("Nao consegui abrir transacao da sessao realtime: {e}"))?;
+    let now = now_iso();
+
+    for (offset, transcript) in segments.iter().enumerate() {
+        let position = (start_position + offset) as i64;
+        transaction
+            .execute(
+                "INSERT INTO lt_segments (session_id, position, item_id, transcript, completed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(session_id, position) DO UPDATE SET
+                    transcript = excluded.transcript,
+                    completed_at = excluded.completed_at",
+                params![session_id, position, "", transcript, now],
+            )
+            .map_err(|e| format!("Nao consegui inserir o segmento {position}: {e}"))?;
+    }
+
+    let new_segment_count = (start_position + segments.len()) as i64;
+    transaction
+        .execute(
+            "UPDATE lt_sessions
+             SET segment_count = MAX(segment_count, ?2)
+             WHERE id = ?1",
+            params![session_id, new_segment_count],
+        )
+        .map_err(|e| format!("Nao consegui atualizar o contador de segmentos: {e}"))?;
+
+    transaction
+        .commit()
+        .map_err(|e| format!("Nao consegui confirmar a transacao da sessao realtime: {e}"))?;
+
+    Ok(start_position + segments.len())
+}
+
+pub fn finalize_live_session(session_id: i64, stopped_at: String) -> Result<(), String> {
+    let conn = open_db()?;
+    ensure_schema(&conn)?;
+
+    conn.execute(
+        "UPDATE lt_sessions
+         SET stopped_at = ?2
+         WHERE id = ?1",
+        params![session_id, stopped_at],
+    )
+    .map_err(|e| format!("Nao consegui finalizar a sessao realtime: {e}"))?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +330,7 @@ mod tests {
     #[test]
     fn iso_known_date() {
         // 2026-03-11T14:32:00Z
-        let secs: u64 = 1741700720;
+        let secs: u64 = 1773250320;
         let result = unix_secs_to_iso(secs);
         assert!(
             result.starts_with("2026-"),

@@ -147,8 +147,33 @@ fn spawn_parec_process(monitor_source: &str) -> Result<Child, String> {
 }
 
 fn default_monitor_source_name() -> Result<String, String> {
+    if let Some(source) = monitor_source_override()? {
+        eprintln!("[openvoice][audio] using monitor source override: {source}");
+        return Ok(source);
+    }
+
     let default_sink = default_sink_name()?;
-    Ok(format!("{default_sink}.monitor"))
+    let preferred = format!("{default_sink}.monitor");
+    let available = list_monitor_sources()?;
+
+    if available.iter().any(|source| source.name == preferred) {
+        eprintln!("[openvoice][audio] using default sink monitor: {preferred}");
+        return Ok(preferred);
+    }
+
+    let fallback = available
+        .iter()
+        .find(|source| source.state == "RUNNING")
+        .or_else(|| available.first())
+        .map(|source| source.name.clone())
+        .ok_or_else(|| {
+            String::from("Nao encontrei nenhum monitor source do PulseAudio/PipeWire para capturar o audio do sistema.")
+        })?;
+
+    eprintln!(
+        "[openvoice][audio] default sink monitor {preferred} not found, falling back to {fallback}"
+    );
+    Ok(fallback)
 }
 
 fn spawn_reader_thread(
@@ -242,14 +267,12 @@ fn process_live_audio_bytes(
         if *keep_sample {
             output_chunk.extend_from_slice(&mono.to_le_bytes());
 
-            if output_chunk.len() >= LIVE_CHUNK_BYTES {
-                if chunk_sender.send(std::mem::take(output_chunk)).is_err() {
-                    return;
-                }
-                output_chunk.reserve(LIVE_CHUNK_BYTES);
+            if output_chunk.len() >= LIVE_CHUNK_BYTES
+                && chunk_sender.send(std::mem::take(output_chunk)).is_err()
+            {
+                return;
             }
         }
-
         *keep_sample = !*keep_sample;
         offset += 4;
     }
@@ -272,6 +295,59 @@ fn default_sink_name() -> Result<String, String> {
         String::from(
             "Nao consegui descobrir o sink padrao do desktop. Verifique PulseAudio/pipewire-pulse.",
         )
+    })
+}
+
+fn monitor_source_override() -> Result<Option<String>, String> {
+    let Some(raw) = std::env::var("OPENVOICE_MONITOR_SOURCE").ok() else {
+        return Ok(None);
+    };
+
+    let source = raw.trim();
+    if source.is_empty() {
+        return Ok(None);
+    }
+
+    let available = list_monitor_sources()?;
+    if available.iter().any(|candidate| candidate.name == source) {
+        Ok(Some(source.to_owned()))
+    } else {
+        Err(format!(
+            "O monitor source definido em OPENVOICE_MONITOR_SOURCE nao existe: {source}"
+        ))
+    }
+}
+
+fn list_monitor_sources() -> Result<Vec<MonitorSourceInfo>, String> {
+    let output = read_command_output("pactl", &["list", "short", "sources"])?.ok_or_else(|| {
+        String::from("Nao consegui listar os monitor sources do PulseAudio/PipeWire.")
+    })?;
+
+    let sources = output
+        .lines()
+        .filter_map(parse_monitor_source_line)
+        .collect::<Vec<_>>();
+
+    Ok(sources)
+}
+
+#[derive(Debug, Clone)]
+struct MonitorSourceInfo {
+    name: String,
+    state: String,
+}
+
+fn parse_monitor_source_line(line: &str) -> Option<MonitorSourceInfo> {
+    let mut parts = line.split('\t');
+    let _index = parts.next()?;
+    let name = parts.next()?.trim();
+    let _driver = parts.next()?;
+    let _format = parts.next()?;
+    let state = parts.next()?.trim();
+
+    name.ends_with(".monitor").then(|| MonitorSourceInfo {
+        name: name.to_owned(),
+        state: state.to_owned(),
     })
 }
 
@@ -317,7 +393,10 @@ fn write_error(last_error: &SharedError, error: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_default_sink_from_info, process_live_audio_bytes};
+    use super::{
+        LIVE_CHUNK_BYTES, parse_default_sink_from_info, parse_monitor_source_line,
+        process_live_audio_bytes,
+    };
     use std::sync::mpsc;
 
     #[test]
@@ -328,6 +407,18 @@ mod tests {
             parse_default_sink_from_info(info).as_deref(),
             Some("alsa_output.pci-0000_0c_00.4.analog-stereo")
         );
+    }
+
+    #[test]
+    fn parses_monitor_source_lines() {
+        let line = "60\talsa_output.usb-Astro_Gaming_Astro_MixAmp_Pro-00.stereo-chat.monitor\tPipeWire\ts16le 2ch 48000Hz\tRUNNING";
+        let source = parse_monitor_source_line(line).expect("monitor source");
+
+        assert_eq!(
+            source.name,
+            "alsa_output.usb-Astro_Gaming_Astro_MixAmp_Pro-00.stereo-chat.monitor"
+        );
+        assert_eq!(source.state, "RUNNING");
     }
 
     #[test]
@@ -354,5 +445,31 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(samples, vec![200_i16, 600_i16]);
+    }
+
+    #[test]
+    fn flushes_live_audio_chunks_with_lower_latency_budget() {
+        let (tx, rx) = mpsc::channel();
+        let mut pending = Vec::new();
+        let mut output_chunk = Vec::new();
+        let mut keep_sample = true;
+        let mut flushed = None;
+
+        for _ in 0..64 {
+            for _ in 0..256 {
+                pending.extend_from_slice(&2000_i16.to_le_bytes());
+                pending.extend_from_slice(&2000_i16.to_le_bytes());
+            }
+            process_live_audio_bytes(&mut pending, &mut output_chunk, &mut keep_sample, &tx);
+
+            if let Ok(chunk) = rx.try_recv() {
+                flushed = Some(chunk);
+                break;
+            }
+        }
+
+        let flushed = flushed.expect("chunk should flush once threshold is reached");
+        assert_eq!(flushed.len(), LIVE_CHUNK_BYTES);
+        assert!(output_chunk.len() < LIVE_CHUNK_BYTES);
     }
 }

@@ -501,9 +501,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         "Cadastre e salve uma OpenAI API key nas settings antes de iniciar a transcription realtime.",
                     )
                 } else {
-                    String::from(
-                        "Finalize a acao atual antes de iniciar a transcription realtime.",
-                    )
+                    String::from("Finalize a acao atual antes de iniciar a transcription realtime.")
                 });
                 return Task::none();
             }
@@ -532,9 +530,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     Task::batch([
                         open_subtitle.map(Message::SubtitleWindowOpened),
                         Task::perform(
-                            async move {
-                                live_transcription_application::poll_next_event(receiver)
-                            },
+                            async move { live_transcription_application::poll_next_event(receiver) },
                             Message::RealtimeEventReceived,
                         ),
                     ])
@@ -694,9 +690,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 if let Some(session) = state.live_transcription.as_ref() {
                     let receiver = session.receiver();
                     return Task::perform(
-                        async move {
-                            live_transcription_application::poll_next_event(receiver)
-                        },
+                        async move { live_transcription_application::poll_next_event(receiver) },
                         Message::RealtimeEventReceived,
                     );
                 }

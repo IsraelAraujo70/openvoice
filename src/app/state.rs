@@ -8,7 +8,7 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::window as platform_window;
 use crate::platform::window::MonitorGeometry;
-use iced::{window, Point, Task};
+use iced::{Point, Task, window};
 
 pub struct Overlay {
     // Window IDs

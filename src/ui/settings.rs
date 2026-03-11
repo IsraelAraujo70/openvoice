@@ -2,7 +2,7 @@ use crate::app::{Message, Overlay};
 use crate::modules::settings::domain::SUPPORTED_OPENAI_REALTIME_LANGUAGES;
 use crate::ui::components::chrome_button::{self, ButtonKind};
 use iced::widget::{
-    button, column, container, pick_list, row, scrollable, text, text_input, Space,
+    Space, button, column, container, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 

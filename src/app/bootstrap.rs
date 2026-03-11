@@ -1,5 +1,5 @@
 use crate::app::message::Message;
-use crate::app::state::{boot, Overlay};
+use crate::app::state::{Overlay, boot};
 use crate::app::update::update;
 use crate::ui;
 use crate::ui::theme;

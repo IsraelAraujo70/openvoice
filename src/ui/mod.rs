@@ -6,7 +6,7 @@ pub mod subtitle;
 pub mod theme;
 
 use crate::app::{Message, Overlay};
-use iced::{window, Element};
+use iced::{Element, window};
 
 pub fn view(state: &Overlay, window_id: window::Id) -> Element<'_, Message> {
     if state.subtitle_window_id == Some(window_id) {

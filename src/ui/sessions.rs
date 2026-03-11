@@ -1,8 +1,8 @@
 use crate::app::{Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::{
-    format_iso_for_display, SessionSummary,
+    SessionSummary, format_iso_for_display,
 };
-use iced::widget::{button, column, container, row, scrollable, text, Space};
+use iced::widget::{Space, button, column, container, row, scrollable, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -61,6 +61,11 @@ fn session_card<'a>(
     is_selected: bool,
 ) -> Element<'a, Message> {
     let date_label = format_iso_for_display(&session.started_at);
+    let stopped_label = session
+        .stopped_at
+        .as_deref()
+        .map(format_iso_for_display)
+        .unwrap_or_else(|| String::from("em andamento"));
     let model_label = session.model.as_deref().unwrap_or("modelo desconhecido");
     let lang_label = session.language.as_deref().unwrap_or("idioma desconhecido");
     let seg_label = format!(
@@ -73,6 +78,9 @@ fn session_card<'a>(
         column![
             text(date_label).size(13).color(Color::WHITE),
             text(format!("{lang_label} · {model_label} · {seg_label}"))
+                .size(11)
+                .color(muted()),
+            text(format!("Finalizada: {stopped_label}"))
                 .size(11)
                 .color(muted()),
         ]
@@ -121,6 +129,9 @@ fn session_detail<'a>(state: &'a Overlay, _session: &'a SessionSummary) -> Eleme
     .spacing(8);
 
     column![
+        text(_session.preview.clone())
+            .size(12)
+            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.62)),
         container(
             scrollable(
                 text(transcript_text)

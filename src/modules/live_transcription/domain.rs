@@ -8,12 +8,33 @@ pub struct LiveTranscriptionConfig {
     pub model: String,
     pub prompt: Option<String>,
     pub language: Option<String>,
+    pub noise_reduction: Option<NoiseReductionMode>,
+    pub turn_detection: TurnDetectionMode,
 }
 
 impl LiveTranscriptionConfig {
     pub fn bearer_token(&self) -> &str {
         &self.bearer_token
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoiseReductionMode {
+    NearField,
+    FarField,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TurnDetectionMode {
+    Disabled,
+    ServerVad {
+        threshold: f32,
+        prefix_padding_ms: u32,
+        silence_duration_ms: u32,
+    },
+    SemanticVad {
+        eagerness: String,
+    },
 }
 
 #[derive(Debug, Clone)]

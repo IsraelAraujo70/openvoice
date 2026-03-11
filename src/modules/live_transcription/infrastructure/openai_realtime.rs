@@ -1,7 +1,9 @@
 use crate::modules::audio::infrastructure::system;
-use crate::modules::live_transcription::domain::{LiveTranscriptionConfig, RuntimeEvent};
+use crate::modules::live_transcription::domain::{
+    LiveTranscriptionConfig, NoiseReductionMode, RuntimeEvent, TurnDetectionMode,
+};
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -9,9 +11,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{connect, Message, WebSocket};
+use tungstenite::{Message, WebSocket, connect};
 
 pub type SharedReceiver = Arc<Mutex<Receiver<RuntimeEvent>>>;
+
+const SOCKET_TIMEOUT_MS: u64 = 50;
 
 pub struct SessionHandle {
     receiver: SharedReceiver,
@@ -123,17 +127,10 @@ fn run_session(
             break;
         }
 
-        match audio_rx.recv_timeout(Duration::from_millis(50)) {
+        match audio_rx.recv_timeout(Duration::from_millis(SOCKET_TIMEOUT_MS)) {
             Ok(chunk) => {
-                let payload = json!({
-                    "type": "input_audio_buffer.append",
-                    "audio": base64::engine::general_purpose::STANDARD.encode(&chunk),
-                });
-
-                if let Err(error) = socket.send(Message::Text(payload.to_string())) {
-                    let _ = event_tx.send(RuntimeEvent::Error(format!(
-                        "Falha ao enviar audio para o realtime: {error}"
-                    )));
+                if let Err(error) = send_audio_chunk(&mut socket, &chunk) {
+                    let _ = event_tx.send(RuntimeEvent::Error(error));
                     break;
                 }
             }
@@ -169,6 +166,20 @@ fn run_session(
     let _ = event_tx.send(RuntimeEvent::Stopped);
 }
 
+fn send_audio_chunk(
+    socket: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    chunk: &[u8],
+) -> Result<(), String> {
+    let payload = json!({
+        "type": "input_audio_buffer.append",
+        "audio": base64::engine::general_purpose::STANDARD.encode(chunk),
+    });
+
+    socket
+        .send(Message::Text(payload.to_string()))
+        .map_err(|error| format!("Falha ao enviar audio para o realtime: {error}"))
+}
+
 fn build_session_update(config: &LiveTranscriptionConfig) -> Value {
     let mut transcription = json!({ "model": config.model });
 
@@ -180,25 +191,57 @@ fn build_session_update(config: &LiveTranscriptionConfig) -> Value {
         transcription["prompt"] = Value::String(prompt.to_owned());
     }
 
+    let mut session = json!({
+        "input_audio_format": "pcm16",
+        "input_audio_transcription": transcription,
+        "include": ["item.input_audio_transcription.logprobs"]
+    });
+
+    if let Some(noise_reduction) = build_noise_reduction(config) {
+        session["input_audio_noise_reduction"] = noise_reduction;
+    }
+
+    session["turn_detection"] = build_turn_detection(config).unwrap_or(Value::Null);
+
     json!({
         "type": "transcription_session.update",
-        "session": {
-            "input_audio_format": "pcm16",
-            "input_audio_noise_reduction": {
-                "type": "far_field",
-            },
-            "input_audio_transcription": transcription,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 500,
-            },
-            "include": [
-                "item.input_audio_transcription.logprobs"
-            ]
-        }
+        "session": session
     })
+}
+
+fn build_noise_reduction(config: &LiveTranscriptionConfig) -> Option<Value> {
+    match config.noise_reduction {
+        Some(NoiseReductionMode::NearField) => Some(json!({ "type": "near_field" })),
+        Some(NoiseReductionMode::FarField) => Some(json!({ "type": "far_field" })),
+        None => None,
+    }
+}
+
+fn build_turn_detection(config: &LiveTranscriptionConfig) -> Option<Value> {
+    match &config.turn_detection {
+        TurnDetectionMode::Disabled => None,
+        TurnDetectionMode::ServerVad {
+            threshold,
+            prefix_padding_ms,
+            silence_duration_ms,
+        } => Some(json!({
+            "type": "server_vad",
+            "threshold": quantize_decimal(*threshold, 4),
+            "prefix_padding_ms": prefix_padding_ms,
+            "silence_duration_ms": silence_duration_ms,
+        })),
+        TurnDetectionMode::SemanticVad { .. } => Some(json!({
+            "type": "server_vad",
+            "threshold": 0.45,
+            "prefix_padding_ms": 240,
+            "silence_duration_ms": 320,
+        })),
+    }
+}
+
+fn quantize_decimal(value: f32, decimals: u32) -> f64 {
+    let factor = 10_f64.powi(decimals as i32);
+    ((value as f64) * factor).round() / factor
 }
 
 fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
@@ -222,11 +265,7 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
         .unwrap_or_default();
 
     match event_type {
-        "transcription_session.updated" | "session.updated" => {
-            let _ = event_tx.send(RuntimeEvent::Warning(String::from(
-                "Sessao realtime atualizada pelo servidor.",
-            )));
-        }
+        "transcription_session.updated" | "session.updated" => {}
         "input_audio_buffer.speech_started" => {
             let _ = event_tx.send(RuntimeEvent::Warning(String::from(
                 "VAD detectou inicio de fala.",
@@ -308,7 +347,7 @@ fn configure_stream_timeout(
     socket: &mut WebSocket<MaybeTlsStream<TcpStream>>,
 ) -> Result<(), String> {
     let stream = socket.get_mut();
-    let timeout = Some(Duration::from_millis(50));
+    let timeout = Some(Duration::from_millis(SOCKET_TIMEOUT_MS));
 
     match stream {
         MaybeTlsStream::Plain(tcp) => tcp
@@ -319,5 +358,87 @@ fn configure_stream_timeout(
             .set_read_timeout(timeout)
             .map_err(|error| format!("Falha ao configurar timeout do socket TLS: {error}")),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_session_update;
+    use crate::modules::live_transcription::domain::{
+        LiveTranscriptionConfig, NoiseReductionMode, TurnDetectionMode,
+    };
+
+    fn base_config() -> LiveTranscriptionConfig {
+        LiveTranscriptionConfig {
+            bearer_token: String::from("token"),
+            model: String::from("gpt-4o-transcribe"),
+            prompt: None,
+            language: None,
+            noise_reduction: None,
+            turn_detection: TurnDetectionMode::Disabled,
+        }
+    }
+
+    #[test]
+    fn builds_session_update_with_server_vad_and_prompt() {
+        let mut config = base_config();
+        config.prompt = Some(String::from("Meeting terms: Kubernetes, Grafana."));
+        config.language = Some(String::from("pt"));
+        config.noise_reduction = Some(NoiseReductionMode::NearField);
+        config.turn_detection = TurnDetectionMode::ServerVad {
+            threshold: 0.41,
+            prefix_padding_ms: 180,
+            silence_duration_ms: 260,
+        };
+
+        let payload = build_session_update(&config);
+
+        assert_eq!(payload["type"], "transcription_session.update");
+        assert_eq!(
+            payload["session"]["input_audio_transcription"]["model"],
+            "gpt-4o-transcribe"
+        );
+        assert_eq!(
+            payload["session"]["input_audio_transcription"]["language"],
+            "pt"
+        );
+        assert_eq!(
+            payload["session"]["input_audio_transcription"]["prompt"],
+            "Meeting terms: Kubernetes, Grafana."
+        );
+        assert_eq!(
+            payload["session"]["input_audio_noise_reduction"]["type"],
+            "near_field"
+        );
+        assert_eq!(payload["session"]["turn_detection"]["type"], "server_vad");
+        assert_eq!(
+            payload["session"]["turn_detection"]["silence_duration_ms"],
+            260
+        );
+    }
+
+    #[test]
+    fn omits_turn_detection_and_noise_reduction_when_disabled() {
+        let payload = build_session_update(&base_config());
+
+        assert!(payload["session"]["turn_detection"].is_null());
+        assert!(payload["session"]["input_audio_noise_reduction"].is_null());
+    }
+
+    #[test]
+    fn builds_session_update_with_semantic_vad_fallback() {
+        let mut config = base_config();
+        config.turn_detection = TurnDetectionMode::SemanticVad {
+            eagerness: String::from("high"),
+        };
+        config.noise_reduction = Some(NoiseReductionMode::FarField);
+
+        let payload = build_session_update(&config);
+
+        assert_eq!(payload["session"]["turn_detection"]["type"], "server_vad");
+        assert_eq!(
+            payload["session"]["input_audio_noise_reduction"]["type"],
+            "far_field"
+        );
     }
 }
