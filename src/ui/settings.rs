@@ -1,6 +1,6 @@
 use crate::app::{Message, Overlay};
 use crate::ui::components::chrome_button::{self, ButtonKind};
-use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::widget::{Space, button, column, container, row, text, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -11,6 +11,62 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
     })
     .padding([12, 16])
     .on_press_maybe((!state.is_saving_settings).then_some(Message::SaveSettings));
+
+    let openai_auth_action = if state.has_openai_credentials {
+        button(if state.is_openai_authenticating {
+            "Working..."
+        } else {
+            "Log out"
+        })
+        .padding([12, 16])
+        .on_press_maybe((!state.is_openai_authenticating).then_some(Message::LogoutOpenAi))
+    } else if state.pending_openai_oauth.is_some() {
+        button(if state.is_openai_authenticating {
+            "Waiting for callback..."
+        } else {
+            "OAuth pending"
+        })
+        .padding([12, 16])
+    } else {
+        button(if state.is_openai_authenticating {
+            "Signing in..."
+        } else {
+            "Sign in with ChatGPT"
+        })
+        .padding([12, 16])
+        .on_press_maybe((!state.is_openai_authenticating).then_some(Message::StartOpenAiOAuthLogin))
+    };
+
+    let manual_callback_block = state.pending_openai_oauth.as_ref().map(|flow| {
+        container(
+            column![
+                text(format!(
+                    "Caso o navegador nao finalize sozinho, cole a callback URL de {}.",
+                    flow.redirect_uri
+                ))
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                text_input(
+                    "http://localhost:1455/auth/callback?...",
+                    &state.openai_callback_url_input
+                )
+                .on_input(Message::OpenAiOAuthCallbackUrlChanged)
+                .padding([12, 14]),
+                button(if state.is_openai_authenticating {
+                    "Finishing..."
+                } else {
+                    "Use callback URL"
+                })
+                .padding([12, 16])
+                .on_press_maybe(
+                    (!state.is_openai_authenticating).then_some(Message::SubmitOpenAiOAuthCallback)
+                ),
+            ]
+            .spacing(12),
+        )
+        .padding(14)
+        .style(|_| card_style())
+    });
 
     let shell = container(
         column![
@@ -61,17 +117,18 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             container(
                 column![
                     section_title("OpenAI Realtime"),
-                    text_input("OpenAI API key", &state.settings_form.openai_api_key)
-                        .on_input(Message::SettingsOpenAiApiKeyChanged)
-                        .padding([12, 14]),
-                    text_input("Realtime model", &state.settings_form.openai_realtime_model)
+                    text_input("Transcription model", &state.settings_form.openai_realtime_model)
                         .on_input(Message::SettingsOpenAiRealtimeModelChanged)
                         .padding([12, 14]),
+                    openai_auth_action,
                     text(
-                        "Use API key por enquanto. O OpenVoice tenta keyring primeiro e cai para arquivo local se necessario."
+                        "Use aqui o modelo de transcricao da sessao realtime, como gpt-4o-mini-transcribe."
                     )
                     .size(12)
                     .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                    manual_callback_block
+                        .map(Element::from)
+                        .unwrap_or_else(|| Space::new().height(0).into()),
                 ]
                 .spacing(14),
             )
@@ -86,14 +143,14 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
                     status_row(
                         "Realtime auth",
                         if state.has_openai_credentials {
-                            match state.openai_credential_kind.as_deref() {
-                                Some("oauth") => "configured via OpenAI OAuth cache",
-                                Some("api_key") => "configured via API key",
-                                _ => "configured",
-                            }
+                            "connected via ChatGPT"
                         } else {
-                            "missing OpenAI credentials"
+                            "not signed in"
                         },
+                    ),
+                    status_row(
+                        "OpenAI account",
+                        state.openai_account_label.as_deref().unwrap_or("unknown"),
                     ),
                 ]
                 .spacing(12),
@@ -162,7 +219,9 @@ fn section_title(label: &'static str) -> Element<'static, Message> {
         .into()
 }
 
-fn status_row(label: &'static str, value: &'static str) -> Element<'static, Message> {
+fn status_row(label: &'static str, value: impl Into<String>) -> Element<'static, Message> {
+    let value = value.into();
+
     row![
         text(label)
             .size(13)

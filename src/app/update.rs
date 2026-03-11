@@ -1,6 +1,8 @@
 use crate::app::message::Message;
 use crate::app::state::{Overlay, OverlayPhase, Scene};
 use crate::modules::audio::infrastructure::microphone;
+use crate::modules::auth::application as auth_application;
+use crate::modules::auth::domain::CredentialStoreStrategy;
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
@@ -47,9 +49,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::WindowCloseRequested(_id) => Task::done(Message::Quit),
         Message::MonitorSizeLoaded(Some(_size)) => Task::none(),
         Message::MonitorSizeLoaded(None) => Task::none(),
-        Message::StartDrag => state
-            .main_window_id
-            .map_or_else(Task::none, window::drag),
+        Message::StartDrag => state.main_window_id.map_or_else(Task::none, window::drag),
         Message::WindowMoved(position) => {
             if !matches!(state.scene, Scene::Hud) {
                 return Task::none();
@@ -60,9 +60,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 state.hud_position = Some(clamped);
 
                 if clamped != position {
-                    return state.main_window_id.map_or_else(Task::none, |id| {
-                        window::move_to(id, clamped)
-                    });
+                    return state
+                        .main_window_id
+                        .map_or_else(Task::none, |id| window::move_to(id, clamped));
                 }
             } else {
                 state.hud_position = Some(position);
@@ -144,10 +144,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openrouter_model = value;
             Task::none()
         }
-        Message::SettingsOpenAiApiKeyChanged(value) => {
-            state.settings_form.openai_api_key = value;
-            Task::none()
-        }
         Message::SettingsOpenAiRealtimeModelChanged(value) => {
             state.settings_form.openai_realtime_model = value;
             Task::none()
@@ -159,7 +155,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             let openrouter_api_key = state.settings_form.openrouter_api_key.clone();
             let openrouter_model = state.settings_form.openrouter_model.clone();
-            let openai_api_key = state.settings_form.openai_api_key.clone();
             let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
 
             Task::perform(
@@ -167,7 +162,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     settings_application::save_settings(
                         openrouter_api_key,
                         openrouter_model,
-                        openai_api_key,
                         openai_realtime_model,
                     )
                 },
@@ -178,13 +172,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.is_saving_settings = false;
 
             match result {
-                Ok(saved) => {
-                    state.settings = saved.settings;
+                Ok(settings) => {
+                    state.settings = settings;
                     state.settings_form = SettingsForm::from(&state.settings);
-                    state.settings_form.openai_api_key = saved.openai_api_key_for_form;
-                    state.has_openai_credentials = saved.has_openai_credentials;
-                    state.openai_credential_kind = saved.openai_credential_kind;
-                    state.settings_note = Some(String::from("Settings e auth OpenAI atualizados."));
+                    state.settings_note = Some(String::from("Settings salvas em disco."));
                     state.error = None;
 
                     if !state.is_recording() && !state.is_processing() {
@@ -194,6 +185,146 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         );
                     }
 
+                    Task::none()
+                }
+                Err(error) => {
+                    state.settings_note = None;
+                    state.error = Some(error);
+                    Task::none()
+                }
+            }
+        }
+        Message::StartOpenAiOAuthLogin => {
+            state.is_openai_authenticating = true;
+            state.settings_note = Some(String::from(
+                "Abrindo navegador para login ChatGPT em localhost:1455...",
+            ));
+            state.error = None;
+            state.pending_openai_oauth = None;
+            state.openai_callback_url_input.clear();
+
+            Task::perform(
+                async move { auth_application::start_login(CredentialStoreStrategy::Auto) },
+                Message::OpenAiOAuthStarted,
+            )
+        }
+        Message::OpenAiOAuthStarted(result) => match result {
+            Ok(flow) => {
+                state.pending_openai_oauth = Some(flow.clone());
+                state.settings_note = Some(String::from(
+                    "Navegador aberto. Se o app nao concluir sozinho, cole a callback URL abaixo.",
+                ));
+                state.error = None;
+
+                Task::perform(
+                    async move { auth_application::wait_for_callback(flow.flow_id) },
+                    Message::OpenAiOAuthCallbackCaptured,
+                )
+            }
+            Err(error) => {
+                state.is_openai_authenticating = false;
+                state.settings_note = None;
+                state.error = Some(error);
+                Task::none()
+            }
+        },
+        Message::OpenAiOAuthCallbackCaptured(result) => match result {
+            Ok(callback_url) => {
+                state.openai_callback_url_input = callback_url.clone();
+
+                if let Some(flow) = state.pending_openai_oauth.as_ref() {
+                    let flow_id = flow.flow_id.clone();
+                    return Task::perform(
+                        async move { auth_application::complete_login(flow_id, callback_url) },
+                        Message::OpenAiOAuthFinished,
+                    );
+                }
+
+                Task::none()
+            }
+            Err(error) => {
+                state.is_openai_authenticating = false;
+                state.settings_note = Some(String::from(
+                    "Callback automatico nao concluiu. Cole a callback URL manualmente.",
+                ));
+                state.error = Some(error);
+                Task::none()
+            }
+        },
+        Message::OpenAiOAuthCallbackUrlChanged(value) => {
+            state.openai_callback_url_input = value;
+            Task::none()
+        }
+        Message::SubmitOpenAiOAuthCallback => {
+            let Some(flow) = state.pending_openai_oauth.as_ref() else {
+                state.error = Some(String::from(
+                    "Nao existe login OAuth pendente para concluir manualmente.",
+                ));
+                return Task::none();
+            };
+
+            let callback_url = state.openai_callback_url_input.trim().to_owned();
+            if callback_url.is_empty() {
+                state.error = Some(String::from("Cole a callback URL antes de continuar."));
+                return Task::none();
+            }
+
+            state.is_openai_authenticating = true;
+            state.settings_note = Some(String::from(
+                "Finalizando login ChatGPT a partir da callback URL...",
+            ));
+            state.error = None;
+
+            let flow_id = flow.flow_id.clone();
+            Task::perform(
+                async move { auth_application::complete_login(flow_id, callback_url) },
+                Message::OpenAiOAuthFinished,
+            )
+        }
+        Message::OpenAiOAuthFinished(result) => {
+            state.is_openai_authenticating = false;
+
+            match result {
+                Ok(snapshot) => {
+                    state.pending_openai_oauth = None;
+                    state.openai_callback_url_input.clear();
+                    state.has_openai_credentials = snapshot.is_authenticated;
+                    state.openai_account_label = snapshot.account_label;
+                    state.settings_note = Some(String::from(
+                        "Login ChatGPT concluido. Realtime transcription pronta para uso.",
+                    ));
+                    state.error = None;
+                    Task::none()
+                }
+                Err(error) => {
+                    state.settings_note = None;
+                    state.error = Some(error);
+                    Task::none()
+                }
+            }
+        }
+        Message::LogoutOpenAi => {
+            state.is_openai_authenticating = true;
+            state.pending_openai_oauth = None;
+            state.openai_callback_url_input.clear();
+            state.settings_note = Some(String::from("Removendo sessao ChatGPT do OpenVoice..."));
+            state.error = None;
+
+            Task::perform(
+                async move { auth_application::logout(CredentialStoreStrategy::Auto) },
+                Message::OpenAiLogoutFinished,
+            )
+        }
+        Message::OpenAiLogoutFinished(result) => {
+            state.is_openai_authenticating = false;
+
+            match result {
+                Ok(()) => {
+                    state.has_openai_credentials = false;
+                    state.openai_account_label = None;
+                    state.settings_note =
+                        Some(String::from("Sessao ChatGPT removida do OpenVoice."));
+                    state.error = None;
                     Task::none()
                 }
                 Err(error) => {
@@ -268,13 +399,16 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.error = None;
 
                     Task::perform(
-                        async move { dictation_application::transcribe_capture(config, capture_track.audio) },
+                        async move {
+                            dictation_application::transcribe_capture(config, capture_track.audio)
+                        },
                         Message::DictationFinished,
                     )
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
-                    state.hint = String::from("A captura do microfone foi interrompida antes do envio.");
+                    state.hint =
+                        String::from("A captura do microfone foi interrompida antes do envio.");
                     state.error = Some(error);
                     Task::none()
                 }
@@ -307,12 +441,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 state.phase = OverlayPhase::Error;
                 state.error = Some(if !state.has_openai_credentials {
                     String::from(
-                        "Cadastre uma OpenAI API key nas settings antes de iniciar a transcription realtime.",
+                        "Entre com ChatGPT nas settings antes de iniciar a transcription realtime.",
                     )
                 } else {
-                    String::from(
-                        "Finalize a acao atual antes de iniciar a transcription realtime.",
-                    )
+                    String::from("Finalize a acao atual antes de iniciar a transcription realtime.")
                 });
                 return Task::none();
             }
@@ -373,7 +505,8 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             match event {
                 RuntimeEvent::Connected => {
                     state.phase = OverlayPhase::Recording;
-                    state.hint = String::from("System audio em streaming para transcricao realtime.");
+                    state.hint =
+                        String::from("System audio em streaming para transcricao realtime.");
                     state.error = None;
                 }
                 RuntimeEvent::TranscriptDelta { item_id, delta } => {
@@ -387,7 +520,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         state.preview = Some(state.live_partial_transcript.clone());
                     }
                 }
-                RuntimeEvent::TranscriptCompleted { item_id, transcript } => {
+                RuntimeEvent::TranscriptCompleted {
+                    item_id,
+                    transcript,
+                } => {
                     if !transcript.trim().is_empty() {
                         state.live_completed_segments.push(transcript.clone());
                         state.preview = Some(transcript);

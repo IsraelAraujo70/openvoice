@@ -1,13 +1,30 @@
-use crate::modules::auth::domain::OpenAiCredentials;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_OPENROUTER_MODEL: &str = "google/gemini-2.5-flash-lite:nitro";
-pub const DEFAULT_OPENAI_REALTIME_MODEL: &str = "gpt-4o-mini-transcribe";
+pub const DEFAULT_OPENAI_REALTIME_MODEL: &str = "gpt-4o-transcribe";
+pub const SUPPORTED_OPENAI_REALTIME_MODELS: &[&str] = &[
+    "whisper-1",
+    "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-mini-transcribe-2025-03-20",
+    "gpt-4o-mini-transcribe-2025-12-15",
+];
+
+fn default_openrouter_model() -> String {
+    String::from(DEFAULT_OPENROUTER_MODEL)
+}
+
+fn default_openai_realtime_model() -> String {
+    String::from(DEFAULT_OPENAI_REALTIME_MODEL)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
+    #[serde(default)]
     pub openrouter_api_key: String,
+    #[serde(default = "default_openrouter_model")]
     pub openrouter_model: String,
+    #[serde(default = "default_openai_realtime_model")]
     pub openai_realtime_model: String,
 }
 
@@ -37,11 +54,7 @@ impl AppSettings {
             openrouter_model.trim().to_owned()
         };
 
-        let openai_realtime_model = if openai_realtime_model.trim().is_empty() {
-            String::from(DEFAULT_OPENAI_REALTIME_MODEL)
-        } else {
-            openai_realtime_model.trim().to_owned()
-        };
+        let openai_realtime_model = normalize_openai_realtime_model(&openai_realtime_model);
 
         Ok(Self {
             openrouter_api_key: openrouter_api_key.trim().to_owned(),
@@ -53,13 +66,17 @@ impl AppSettings {
     pub fn has_api_key(&self) -> bool {
         !self.openrouter_api_key.trim().is_empty()
     }
+
+    pub fn normalized(mut self) -> Self {
+        self.openai_realtime_model = normalize_openai_realtime_model(&self.openai_realtime_model);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SettingsForm {
     pub openrouter_api_key: String,
     pub openrouter_model: String,
-    pub openai_api_key: String,
     pub openai_realtime_model: String,
 }
 
@@ -68,30 +85,17 @@ impl From<&AppSettings> for SettingsForm {
         Self {
             openrouter_api_key: settings.openrouter_api_key.clone(),
             openrouter_model: settings.openrouter_model.clone(),
-            openai_api_key: String::new(),
             openai_realtime_model: settings.openai_realtime_model.clone(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SaveSettingsResult {
-    pub settings: AppSettings,
-    pub has_openai_credentials: bool,
-    pub openai_credential_kind: Option<String>,
-    pub openai_api_key_for_form: String,
-}
+fn normalize_openai_realtime_model(value: &str) -> String {
+    let trimmed = value.trim();
 
-pub fn form_openai_api_key(credentials: Option<&OpenAiCredentials>) -> String {
-    match credentials {
-        Some(OpenAiCredentials::ApiKey { api_key }) => api_key.clone(),
-        _ => String::new(),
+    if SUPPORTED_OPENAI_REALTIME_MODELS.contains(&trimmed) {
+        trimmed.to_owned()
+    } else {
+        String::from(DEFAULT_OPENAI_REALTIME_MODEL)
     }
-}
-
-pub fn credential_kind_label(credentials: Option<&OpenAiCredentials>) -> Option<String> {
-    credentials.map(|credentials| match credentials {
-        OpenAiCredentials::ApiKey { .. } => String::from("api_key"),
-        OpenAiCredentials::OAuth { .. } => String::from("oauth"),
-    })
 }

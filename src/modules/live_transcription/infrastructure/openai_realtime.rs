@@ -1,7 +1,7 @@
 use crate::modules::audio::infrastructure::system;
 use crate::modules::live_transcription::domain::{LiveTranscriptionConfig, RuntimeEvent};
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{connect, Message, WebSocket};
+use tungstenite::{Message, WebSocket, connect};
 
 pub type SharedReceiver = Arc<Mutex<Receiver<RuntimeEvent>>>;
 
@@ -62,7 +62,7 @@ fn run_session(
         }
     };
 
-    let url = format!("wss://api.openai.com/v1/realtime?model={}", config.model);
+    let url = String::from("wss://api.openai.com/v1/realtime?intent=transcription");
     let mut request = match tungstenite::client::IntoClientRequest::into_client_request(url) {
         Ok(request) => request,
         Err(error) => {
@@ -86,6 +86,18 @@ fn run_session(
     };
 
     request.headers_mut().insert("Authorization", authorization);
+    request.headers_mut().insert(
+        "OpenAI-Beta",
+        "realtime=v1".parse().expect("valid beta header"),
+    );
+
+    if let Some(account_id) = config.account_id() {
+        if let Ok(header_value) = account_id.parse() {
+            request
+                .headers_mut()
+                .insert("ChatGPT-Account-Id", header_value);
+        }
+    }
 
     let (mut socket, _) = match connect(request) {
         Ok(connection) => connection,
@@ -103,6 +115,10 @@ fn run_session(
     }
 
     let session_update = build_session_update(&config);
+    eprintln!(
+        "[openvoice][realtime] sending session update {}",
+        session_update
+    );
     if let Err(error) = socket.send(Message::Text(session_update.to_string())) {
         let _ = event_tx.send(RuntimeEvent::Error(format!(
             "Falha ao configurar a sessao realtime: {error}"
@@ -121,11 +137,16 @@ fn run_session(
 
         match audio_rx.recv_timeout(Duration::from_millis(50)) {
             Ok(chunk) => {
+                let chunk_len = chunk.len();
                 let payload = json!({
                     "type": "input_audio_buffer.append",
-                    "audio": base64::engine::general_purpose::STANDARD.encode(chunk),
+                    "audio": base64::engine::general_purpose::STANDARD.encode(&chunk),
                 });
 
+                eprintln!(
+                    "[openvoice][realtime] sending audio chunk bytes={}",
+                    chunk_len
+                );
                 if let Err(error) = socket.send(Message::Text(payload.to_string())) {
                     let _ = event_tx.send(RuntimeEvent::Error(format!(
                         "Falha ao enviar audio para o realtime: {error}"
@@ -177,32 +198,33 @@ fn build_session_update(config: &LiveTranscriptionConfig) -> Value {
     }
 
     json!({
-        "type": "session.update",
+        "type": "transcription_session.update",
         "session": {
-            "type": "transcription",
-            "audio": {
-                "input": {
-                    "format": {
-                        "type": "audio/pcm",
-                        "rate": 24000,
-                    },
-                    "noise_reduction": {
-                        "type": "far_field",
-                    },
-                    "transcription": transcription,
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.5,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 500,
-                    }
-                }
-            }
+            "input_audio_format": "pcm16",
+            "input_audio_noise_reduction": {
+                "type": "far_field",
+            },
+            "input_audio_transcription": transcription,
+            "turn_detection": {
+                "type": "server_vad",
+                "threshold": 0.5,
+                "prefix_padding_ms": 300,
+                "silence_duration_ms": 500,
+            },
+            "include": [
+                "item.input_audio_transcription.logprobs"
+            ]
         }
     })
 }
 
 fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
+    if let Message::Text(text) = &message {
+        eprintln!("[openvoice][realtime] recv {text}");
+    } else {
+        eprintln!("[openvoice][realtime] recv non-text message");
+    }
+
     let Message::Text(text) = message else {
         return;
     };
@@ -223,6 +245,26 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
         .unwrap_or_default();
 
     match event_type {
+        "transcription_session.updated" | "session.updated" => {
+            let _ = event_tx.send(RuntimeEvent::Warning(String::from(
+                "Sessao realtime atualizada pelo servidor.",
+            )));
+        }
+        "input_audio_buffer.speech_started" => {
+            let _ = event_tx.send(RuntimeEvent::Warning(String::from(
+                "VAD detectou inicio de fala.",
+            )));
+        }
+        "input_audio_buffer.speech_stopped" => {
+            let _ = event_tx.send(RuntimeEvent::Warning(String::from(
+                "VAD detectou fim de fala.",
+            )));
+        }
+        "input_audio_buffer.committed" => {
+            let _ = event_tx.send(RuntimeEvent::Warning(String::from(
+                "Buffer de audio enviado para transcricao.",
+            )));
+        }
         "conversation.item.input_audio_transcription.delta" => {
             let item_id = parsed
                 .get("item_id")

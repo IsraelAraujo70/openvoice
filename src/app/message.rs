@@ -1,8 +1,9 @@
-use iced::{keyboard, window, Point, Size};
+use iced::{Point, Size, keyboard, window};
 
+use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
 use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::live_transcription::domain::RuntimeEvent;
-use crate::modules::settings::domain::SaveSettingsResult;
+use crate::modules::settings::domain::AppSettings;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -16,10 +17,17 @@ pub enum Message {
     CloseSettingsView,
     SettingsApiKeyChanged(String),
     SettingsModelChanged(String),
-    SettingsOpenAiApiKeyChanged(String),
     SettingsOpenAiRealtimeModelChanged(String),
     SaveSettings,
-    SettingsSaved(Result<SaveSettingsResult, String>),
+    SettingsSaved(Result<AppSettings, String>),
+    StartOpenAiOAuthLogin,
+    OpenAiOAuthStarted(Result<PendingOpenAiOAuthFlow, String>),
+    OpenAiOAuthCallbackCaptured(Result<String, String>),
+    OpenAiOAuthCallbackUrlChanged(String),
+    SubmitOpenAiOAuthCallback,
+    OpenAiOAuthFinished(Result<OpenAiAuthSnapshot, String>),
+    LogoutOpenAi,
+    OpenAiLogoutFinished(Result<(), String>),
     StartDictation,
     StopDictation,
     DictationFinished(Result<DictationOutput, String>),

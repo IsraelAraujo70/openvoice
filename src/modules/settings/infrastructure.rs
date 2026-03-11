@@ -12,12 +12,14 @@ pub fn load_settings() -> Result<AppSettings, String> {
     let contents =
         fs::read_to_string(&path).map_err(|error| format!("Falha ao ler settings: {error}"))?;
 
-    serde_json::from_str(&contents).map_err(|error| {
-        format!(
-            "Falha ao interpretar settings em {}: {error}",
-            path.display()
-        )
-    })
+    serde_json::from_str::<AppSettings>(&contents)
+        .map(AppSettings::normalized)
+        .map_err(|error| {
+            format!(
+                "Falha ao interpretar settings em {}: {error}",
+                path.display()
+            )
+        })
 }
 
 pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
