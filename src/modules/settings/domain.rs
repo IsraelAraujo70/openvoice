@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_OPENROUTER_MODEL: &str = "google/gemini-2.5-flash-lite:nitro";
 pub const DEFAULT_OPENAI_REALTIME_MODEL: &str = "gpt-4o-transcribe";
 pub const DEFAULT_OPENAI_REALTIME_LANGUAGE: &str = "";
+pub const DEFAULT_OPENAI_REALTIME_PROFILE: &str = "balanced";
 pub const SUPPORTED_OPENAI_REALTIME_MODELS: &[&str] = &[
     "whisper-1",
     "gpt-4o-transcribe",
@@ -12,6 +13,7 @@ pub const SUPPORTED_OPENAI_REALTIME_MODELS: &[&str] = &[
 ];
 pub const SUPPORTED_OPENAI_REALTIME_LANGUAGES: &[&str] =
     &["", "pt", "en", "de", "es", "fr", "it", "ja"];
+pub const SUPPORTED_OPENAI_REALTIME_PROFILES: &[&str] = &["caption", "balanced", "accuracy"];
 
 fn default_openrouter_model() -> String {
     String::from(DEFAULT_OPENROUTER_MODEL)
@@ -33,6 +35,8 @@ pub struct AppSettings {
     pub openai_realtime_model: String,
     #[serde(default)]
     pub openai_realtime_language: String,
+    #[serde(default = "default_openai_realtime_profile")]
+    pub openai_realtime_profile: String,
 }
 
 impl Default for AppSettings {
@@ -43,6 +47,7 @@ impl Default for AppSettings {
             openrouter_model: String::from(DEFAULT_OPENROUTER_MODEL),
             openai_realtime_model: String::from(DEFAULT_OPENAI_REALTIME_MODEL),
             openai_realtime_language: String::from(DEFAULT_OPENAI_REALTIME_LANGUAGE),
+            openai_realtime_profile: String::from(DEFAULT_OPENAI_REALTIME_PROFILE),
         }
     }
 }
@@ -54,6 +59,7 @@ impl AppSettings {
         openrouter_model: String,
         openai_realtime_model: String,
         openai_realtime_language: String,
+        openai_realtime_profile: String,
     ) -> Result<Self, String> {
         if openrouter_api_key.trim().is_empty() {
             return Err(String::from("A OpenRouter API key nao pode ficar vazia."));
@@ -68,6 +74,7 @@ impl AppSettings {
         let openai_realtime_model = normalize_openai_realtime_model(&openai_realtime_model);
         let openai_realtime_language =
             normalize_openai_realtime_language(&openai_realtime_language);
+        let openai_realtime_profile = normalize_openai_realtime_profile(&openai_realtime_profile);
 
         Ok(Self {
             openrouter_api_key: openrouter_api_key.trim().to_owned(),
@@ -75,6 +82,7 @@ impl AppSettings {
             openrouter_model,
             openai_realtime_model,
             openai_realtime_language,
+            openai_realtime_profile,
         })
     }
 
@@ -90,6 +98,8 @@ impl AppSettings {
         self.openai_realtime_model = normalize_openai_realtime_model(&self.openai_realtime_model);
         self.openai_realtime_language =
             normalize_openai_realtime_language(&self.openai_realtime_language);
+        self.openai_realtime_profile =
+            normalize_openai_realtime_profile(&self.openai_realtime_profile);
         self
     }
 }
@@ -101,6 +111,7 @@ pub struct SettingsForm {
     pub openrouter_model: String,
     pub openai_realtime_model: String,
     pub openai_realtime_language: String,
+    pub openai_realtime_profile: String,
 }
 
 impl From<&AppSettings> for SettingsForm {
@@ -111,8 +122,13 @@ impl From<&AppSettings> for SettingsForm {
             openrouter_model: settings.openrouter_model.clone(),
             openai_realtime_model: settings.openai_realtime_model.clone(),
             openai_realtime_language: settings.openai_realtime_language.clone(),
+            openai_realtime_profile: settings.openai_realtime_profile.clone(),
         }
     }
+}
+
+fn default_openai_realtime_profile() -> String {
+    String::from(DEFAULT_OPENAI_REALTIME_PROFILE)
 }
 
 fn normalize_openai_realtime_model(value: &str) -> String {
@@ -132,5 +148,15 @@ fn normalize_openai_realtime_language(value: &str) -> String {
         trimmed.to_owned()
     } else {
         String::from(DEFAULT_OPENAI_REALTIME_LANGUAGE)
+    }
+}
+
+fn normalize_openai_realtime_profile(value: &str) -> String {
+    let trimmed = value.trim();
+
+    if SUPPORTED_OPENAI_REALTIME_PROFILES.contains(&trimmed) {
+        trimmed.to_owned()
+    } else {
+        String::from(DEFAULT_OPENAI_REALTIME_PROFILE)
     }
 }

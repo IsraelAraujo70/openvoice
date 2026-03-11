@@ -25,6 +25,7 @@ pub enum Message {
     SettingsModelChanged(String),
     SettingsOpenAiRealtimeModelChanged(String),
     SettingsOpenAiRealtimeLanguageChanged(String),
+    SettingsOpenAiRealtimeProfileChanged(String),
     SaveSettings,
     SettingsSaved(Result<AppSettings, String>),
     // OpenAI OAuth

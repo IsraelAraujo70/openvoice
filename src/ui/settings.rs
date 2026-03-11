@@ -1,5 +1,7 @@
 use crate::app::{Message, Overlay};
-use crate::modules::settings::domain::SUPPORTED_OPENAI_REALTIME_LANGUAGES;
+use crate::modules::settings::domain::{
+    SUPPORTED_OPENAI_REALTIME_LANGUAGES, SUPPORTED_OPENAI_REALTIME_PROFILES,
+};
 use crate::ui::components::chrome_button::{self, ButtonKind};
 use iced::widget::{
     Space, button, column, container, pick_list, row, scrollable, text, text_input,
@@ -152,6 +154,16 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
                         }
                     )
                     .placeholder("Language"),
+                    pick_list(
+                        SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS,
+                        selected_profile_option(&state.settings_form.openai_realtime_profile),
+                        |option| {
+                            Message::SettingsOpenAiRealtimeProfileChanged(
+                                option.code().to_owned()
+                            )
+                        }
+                    )
+                    .placeholder("Realtime profile"),
                 ]
                 .spacing(14),
             )
@@ -336,6 +348,22 @@ struct LanguageOption {
     code: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProfileOption {
+    label: &'static str,
+    code: &'static str,
+}
+
+impl ProfileOption {
+    const fn new(label: &'static str, code: &'static str) -> Self {
+        Self { label, code }
+    }
+
+    fn code(self) -> &'static str {
+        self.code
+    }
+}
+
 impl LanguageOption {
     const fn new(label: &'static str, code: &'static str) -> Self {
         Self { label, code }
@@ -352,6 +380,12 @@ impl std::fmt::Display for LanguageOption {
     }
 }
 
+impl std::fmt::Display for ProfileOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.label.fmt(f)
+    }
+}
+
 const SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS: [LanguageOption; 8] = [
     LanguageOption::new("Auto", ""),
     LanguageOption::new("Portuguese", "pt"),
@@ -363,6 +397,12 @@ const SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS: [LanguageOption; 8] = [
     LanguageOption::new("Japanese", "ja"),
 ];
 
+const SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS: [ProfileOption; 3] = [
+    ProfileOption::new("Caption", "caption"),
+    ProfileOption::new("Balanced", "balanced"),
+    ProfileOption::new("Accuracy", "accuracy"),
+];
+
 fn selected_language_option(language: &str) -> Option<LanguageOption> {
     let normalized = if SUPPORTED_OPENAI_REALTIME_LANGUAGES.contains(&language) {
         language
@@ -371,6 +411,19 @@ fn selected_language_option(language: &str) -> Option<LanguageOption> {
     };
 
     SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS
+        .iter()
+        .copied()
+        .find(|option| option.code == normalized)
+}
+
+fn selected_profile_option(profile: &str) -> Option<ProfileOption> {
+    let normalized = if SUPPORTED_OPENAI_REALTIME_PROFILES.contains(&profile) {
+        profile
+    } else {
+        "balanced"
+    };
+
+    SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS
         .iter()
         .copied()
         .find(|option| option.code == normalized)

@@ -47,7 +47,7 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
         ));
     }
 
-    let profile = realtime_profile_from_env();
+    let profile = realtime_profile_from_settings(settings);
     let language = normalize_language_hint(&settings.openai_realtime_language);
     let (threshold, prefix_padding_ms, silence_duration_ms) = profile_vad(profile);
 
@@ -70,6 +70,15 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
 
 pub fn poll_next_event(receiver: SharedReceiver) -> Option<RuntimeEvent> {
     receiver.lock().ok()?.recv().ok()
+}
+
+fn realtime_profile_from_settings(settings: &AppSettings) -> RealtimeProfile {
+    match settings.openai_realtime_profile.trim() {
+        "caption" => RealtimeProfile::Caption,
+        "accuracy" => RealtimeProfile::Accuracy,
+        "balanced" => RealtimeProfile::Balanced,
+        _ => realtime_profile_from_env(),
+    }
 }
 
 fn realtime_profile_from_env() -> RealtimeProfile {

@@ -189,6 +189,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openai_realtime_language = value;
             Task::none()
         }
+        Message::SettingsOpenAiRealtimeProfileChanged(value) => {
+            state.settings_form.openai_realtime_profile = value;
+            Task::none()
+        }
         Message::SaveSettings => {
             state.is_saving_settings = true;
             state.settings_note = Some(String::from("Salvando settings..."));
@@ -199,6 +203,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             let openrouter_model = state.settings_form.openrouter_model.clone();
             let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
             let openai_realtime_language = state.settings_form.openai_realtime_language.clone();
+            let openai_realtime_profile = state.settings_form.openai_realtime_profile.clone();
 
             Task::perform(
                 async move {
@@ -208,6 +213,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         openrouter_model,
                         openai_realtime_model,
                         openai_realtime_language,
+                        openai_realtime_profile,
                     )
                 },
                 Message::SettingsSaved,

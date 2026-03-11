@@ -11,6 +11,7 @@ pub fn save_settings(
     openrouter_model: String,
     openai_realtime_model: String,
     openai_realtime_language: String,
+    openai_realtime_profile: String,
 ) -> Result<AppSettings, String> {
     let settings = AppSettings::new(
         openrouter_api_key,
@@ -18,6 +19,7 @@ pub fn save_settings(
         openrouter_model,
         openai_realtime_model,
         openai_realtime_language,
+        openai_realtime_profile,
     )?;
     infrastructure::save_settings(&settings)?;
     Ok(settings)
