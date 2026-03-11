@@ -1,7 +1,8 @@
 use iced::{keyboard, window, Point, Size};
 
 use crate::modules::dictation::domain::DictationOutput;
-use crate::modules::settings::domain::AppSettings;
+use crate::modules::live_transcription::domain::RuntimeEvent;
+use crate::modules::settings::domain::SaveSettingsResult;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -15,11 +16,16 @@ pub enum Message {
     CloseSettingsView,
     SettingsApiKeyChanged(String),
     SettingsModelChanged(String),
+    SettingsOpenAiApiKeyChanged(String),
+    SettingsOpenAiRealtimeModelChanged(String),
     SaveSettings,
-    SettingsSaved(Result<AppSettings, String>),
+    SettingsSaved(Result<SaveSettingsResult, String>),
     StartDictation,
     StopDictation,
     DictationFinished(Result<DictationOutput, String>),
+    StartRealtimeTranscription,
+    StopRealtimeTranscription,
+    RealtimeEventReceived(Option<RuntimeEvent>),
     TogglePassthrough,
     Quit,
 }

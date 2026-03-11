@@ -1,7 +1,11 @@
 use crate::app::message::Message;
 use crate::modules::audio::infrastructure::microphone::Recorder;
+use crate::modules::auth::application as auth_application;
+use crate::modules::live_transcription::application::ActiveLiveTranscription;
 use crate::modules::settings::application as settings_application;
-use crate::modules::settings::domain::{AppSettings, SettingsForm};
+use crate::modules::settings::domain::{
+    credential_kind_label, form_openai_api_key, AppSettings, SettingsForm,
+};
 use crate::platform::window::MonitorGeometry;
 use iced::{window, Point, Task};
 
@@ -20,6 +24,12 @@ pub struct Overlay {
     pub is_saving_settings: bool,
     pub settings_note: Option<String>,
     pub recorder: Option<Recorder>,
+    pub live_transcription: Option<ActiveLiveTranscription>,
+    pub has_openai_credentials: bool,
+    pub openai_credential_kind: Option<String>,
+    pub live_partial_item_id: Option<String>,
+    pub live_partial_transcript: String,
+    pub live_completed_segments: Vec<String>,
 }
 
 impl Overlay {
@@ -37,12 +47,31 @@ impl Overlay {
         matches!(self.phase, OverlayPhase::Recording)
     }
 
+    pub fn is_dictation_recording(&self) -> bool {
+        self.recorder.is_some()
+    }
+
     pub fn is_processing(&self) -> bool {
         matches!(self.phase, OverlayPhase::Processing)
     }
 
+    pub fn is_live_transcribing(&self) -> bool {
+        self.live_transcription.is_some()
+    }
+
     pub fn can_start_dictation(&self) -> bool {
-        self.settings.has_api_key() && !self.is_processing() && !self.is_saving_settings
+        self.settings.has_api_key()
+            && !self.is_processing()
+            && !self.is_saving_settings
+            && !self.is_live_transcribing()
+    }
+
+    pub fn can_start_realtime_transcription(&self) -> bool {
+        !self.is_recording()
+            && !self.is_processing()
+            && !self.is_saving_settings
+            && !self.is_live_transcribing()
+            && self.has_openai_credentials
     }
 }
 
@@ -87,7 +116,13 @@ pub fn boot() -> (Overlay, Task<Message>) {
         Ok(settings) => (settings, None),
         Err(error) => (AppSettings::default(), Some(error)),
     };
-    let settings_form = SettingsForm::from(&settings);
+    let stored_openai_credentials = auth_application::load_credentials().ok().flatten();
+    let mut settings_form = SettingsForm::from(&settings);
+    settings_form.openai_api_key = form_openai_api_key(
+        stored_openai_credentials
+            .as_ref()
+            .map(|value| &value.credentials),
+    );
     let missing_api_key = (!settings.has_api_key())
         .then(|| String::from("Cadastre sua OpenRouter API key no painel de settings abaixo."));
 
@@ -111,6 +146,16 @@ pub fn boot() -> (Overlay, Task<Message>) {
             is_saving_settings: false,
             settings_note: None,
             recorder: None,
+            live_transcription: None,
+            has_openai_credentials: stored_openai_credentials.is_some(),
+            openai_credential_kind: credential_kind_label(
+                stored_openai_credentials
+                    .as_ref()
+                    .map(|value| &value.credentials),
+            ),
+            live_partial_item_id: None,
+            live_partial_transcript: String::new(),
+            live_completed_segments: Vec::new(),
         },
         Task::none(),
     )

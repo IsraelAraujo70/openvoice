@@ -3,6 +3,8 @@ use crate::app::state::{Overlay, OverlayPhase, Scene};
 use crate::modules::audio::infrastructure::microphone;
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
+use crate::modules::live_transcription::application as live_transcription_application;
+use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::window as app_window;
@@ -142,16 +144,33 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openrouter_model = value;
             Task::none()
         }
+        Message::SettingsOpenAiApiKeyChanged(value) => {
+            state.settings_form.openai_api_key = value;
+            Task::none()
+        }
+        Message::SettingsOpenAiRealtimeModelChanged(value) => {
+            state.settings_form.openai_realtime_model = value;
+            Task::none()
+        }
         Message::SaveSettings => {
             state.is_saving_settings = true;
             state.settings_note = Some(String::from("Salvando settings..."));
             state.error = None;
 
-            let api_key = state.settings_form.openrouter_api_key.clone();
-            let model = state.settings_form.openrouter_model.clone();
+            let openrouter_api_key = state.settings_form.openrouter_api_key.clone();
+            let openrouter_model = state.settings_form.openrouter_model.clone();
+            let openai_api_key = state.settings_form.openai_api_key.clone();
+            let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
 
             Task::perform(
-                async move { settings_application::save_settings(api_key, model) },
+                async move {
+                    settings_application::save_settings(
+                        openrouter_api_key,
+                        openrouter_model,
+                        openai_api_key,
+                        openai_realtime_model,
+                    )
+                },
                 Message::SettingsSaved,
             )
         }
@@ -159,16 +178,20 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.is_saving_settings = false;
 
             match result {
-                Ok(settings) => {
-                    state.settings = settings;
+                Ok(saved) => {
+                    state.settings = saved.settings;
                     state.settings_form = SettingsForm::from(&state.settings);
-                    state.settings_note = Some(String::from("Settings salvas em disco."));
+                    state.settings_form.openai_api_key = saved.openai_api_key_for_form;
+                    state.has_openai_credentials = saved.has_openai_credentials;
+                    state.openai_credential_kind = saved.openai_credential_kind;
+                    state.settings_note = Some(String::from("Settings e auth OpenAI atualizados."));
                     state.error = None;
 
                     if !state.is_recording() && !state.is_processing() {
                         state.phase = OverlayPhase::Idle;
-                        state.hint =
-                            String::from("Settings prontas. Clique no microfone para ditar.");
+                        state.hint = String::from(
+                            "Settings prontas. Clique no microfone ou use RT para transcricao ao vivo.",
+                        );
                     }
 
                     Task::none()
@@ -279,10 +302,145 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 Task::none()
             }
         },
+        Message::StartRealtimeTranscription => {
+            if !state.can_start_realtime_transcription() {
+                state.phase = OverlayPhase::Error;
+                state.error = Some(if !state.has_openai_credentials {
+                    String::from(
+                        "Cadastre uma OpenAI API key nas settings antes de iniciar a transcription realtime.",
+                    )
+                } else {
+                    String::from(
+                        "Finalize a acao atual antes de iniciar a transcription realtime.",
+                    )
+                });
+                return Task::none();
+            }
+
+            match live_transcription_application::start_live_transcription(&state.settings) {
+                Ok(session) => {
+                    let receiver = session.receiver();
+                    state.live_transcription = Some(session);
+                    state.phase = OverlayPhase::Recording;
+                    state.hint = String::from(
+                        "Realtime transcription conectada ao system audio. Clique novamente para parar.",
+                    );
+                    state.error = None;
+                    state.preview = None;
+                    state.live_partial_item_id = None;
+                    state.live_partial_transcript.clear();
+                    state.live_completed_segments.clear();
+
+                    Task::perform(
+                        async move { live_transcription_application::poll_next_event(receiver) },
+                        Message::RealtimeEventReceived,
+                    )
+                }
+                Err(error) => {
+                    state.phase = OverlayPhase::Error;
+                    state.hint = String::from("Nao consegui iniciar a transcription realtime.");
+                    state.error = Some(error);
+                    Task::none()
+                }
+            }
+        }
+        Message::StopRealtimeTranscription => {
+            if let Some(session) = state.live_transcription.take() {
+                session.stop();
+            }
+
+            state.phase = OverlayPhase::Idle;
+            state.hint = String::from("Realtime transcription finalizada.");
+            state.error = None;
+            state.live_partial_item_id = None;
+            state.live_partial_transcript.clear();
+            state.live_completed_segments.clear();
+            Task::none()
+        }
+        Message::RealtimeEventReceived(event) => {
+            let Some(event) = event else {
+                state.live_transcription = None;
+                state.phase = OverlayPhase::Idle;
+                state.hint = String::from("Realtime transcription encerrada.");
+                state.live_partial_item_id = None;
+                state.live_partial_transcript.clear();
+                state.live_completed_segments.clear();
+                return Task::none();
+            };
+
+            let mut continue_polling = state.live_transcription.is_some();
+
+            match event {
+                RuntimeEvent::Connected => {
+                    state.phase = OverlayPhase::Recording;
+                    state.hint = String::from("System audio em streaming para transcricao realtime.");
+                    state.error = None;
+                }
+                RuntimeEvent::TranscriptDelta { item_id, delta } => {
+                    if !delta.trim().is_empty() {
+                        if state.live_partial_item_id.as_deref() != Some(item_id.as_str()) {
+                            state.live_partial_item_id = Some(item_id);
+                            state.live_partial_transcript.clear();
+                        }
+
+                        state.live_partial_transcript.push_str(&delta);
+                        state.preview = Some(state.live_partial_transcript.clone());
+                    }
+                }
+                RuntimeEvent::TranscriptCompleted { item_id, transcript } => {
+                    if !transcript.trim().is_empty() {
+                        state.live_completed_segments.push(transcript.clone());
+                        state.preview = Some(transcript);
+                    }
+                    state.live_partial_item_id = Some(item_id);
+                    state.live_partial_transcript.clear();
+                    state.error = None;
+                }
+                RuntimeEvent::Warning(warning) => {
+                    state.hint = warning;
+                }
+                RuntimeEvent::Error(error) => {
+                    state.error = Some(error);
+                    state.phase = OverlayPhase::Error;
+                    state.live_partial_item_id = None;
+                    state.live_partial_transcript.clear();
+                    state.live_completed_segments.clear();
+                    continue_polling = false;
+
+                    if let Some(session) = state.live_transcription.take() {
+                        session.stop();
+                    }
+                }
+                RuntimeEvent::Stopped => {
+                    state.live_transcription = None;
+                    state.phase = OverlayPhase::Idle;
+                    state.hint = String::from("Realtime transcription parada.");
+                    state.error = None;
+                    state.live_partial_item_id = None;
+                    state.live_partial_transcript.clear();
+                    state.live_completed_segments.clear();
+                    continue_polling = false;
+                }
+            }
+
+            if continue_polling {
+                if let Some(session) = state.live_transcription.as_ref() {
+                    let receiver = session.receiver();
+                    return Task::perform(
+                        async move { live_transcription_application::poll_next_event(receiver) },
+                        Message::RealtimeEventReceived,
+                    );
+                }
+            }
+
+            Task::none()
+        }
         Message::TogglePassthrough => {
-            if !state.passthrough_enabled && (state.is_recording() || state.is_processing()) {
+            if !state.passthrough_enabled
+                && (state.is_recording() || state.is_processing() || state.is_live_transcribing())
+            {
                 state.error = Some(String::from(
-                    "Finalize o ditado antes de habilitar passthrough.",
+                    "Finalize a captura atual antes de habilitar passthrough.",
                 ));
                 return Task::none();
             }
@@ -309,6 +467,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         }
         Message::Quit => {
             let mut tasks = Vec::new();
+
+            if let Some(session) = state.live_transcription.take() {
+                session.stop();
+            }
 
             if let Some(window_id) = state.main_window_id.take() {
                 tasks.push(window::close(window_id));

@@ -8,10 +8,18 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 pub fn view(state: &Overlay) -> Element<'_, Message> {
     let accent = phase_color(state.phase);
 
-    let mic_action = if state.is_recording() {
+    let mic_action = if state.is_dictation_recording() {
         Some(Message::StopDictation)
     } else if state.can_start_dictation() {
         Some(Message::StartDictation)
+    } else {
+        None
+    };
+
+    let realtime_action = if state.is_live_transcribing() {
+        Some(Message::StopRealtimeTranscription)
+    } else if state.can_start_realtime_transcription() {
+        Some(Message::StartRealtimeTranscription)
     } else {
         None
     };
@@ -40,6 +48,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         drag_handle::view(),
         status_indicator::view(status_label, accent),
         Space::new().width(Length::Fill),
+        chrome_button::view("RT", realtime_action, ButtonKind::Ghost),
         chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
         chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonKind::Ghost),
         chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),

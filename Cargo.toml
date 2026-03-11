@@ -8,6 +8,8 @@ iced = { version = "0.14.0", default-features = false, features = ["wgpu", "tiny
 base64 = "0.22.1"
 cpal = "0.17.3"
 hound = "3.5.1"
+keyring = "3.6.3"
 reqwest = { version = "0.12.23", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+tungstenite = { version = "0.24.0", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
