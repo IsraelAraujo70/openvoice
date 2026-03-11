@@ -1,27 +1,33 @@
 # OpenVoice
 
-OpenVoice e um app desktop Linux-first para capturar reunioes, apoiar fluxo de ditado e salvar resultado no Obsidian.
+OpenVoice e um app desktop Linux-first para transcricao, copiloto de reunioes, ditado e memoria pessoal conectada ao Obsidian.
 
-O repositorio esta sendo reconstruido em Rust com `Iced`, com foco inicial em um overlay leve para Linux.
+O repositorio esta sendo construido em Rust com `Iced`.
 
 ## Estado Atual
 
 Hoje o projeto implementa:
 
-- janela transparente
-- overlay minimo `OPENVOICE / WIP`
-- tentativa de mouse passthrough
-- inicializacao no monitor principal
-- preferencia por `x11`/XWayland para suportar melhor comportamento de janela
+- HUD desktop leve
+- settings persistidas em disco
+- captura gravada com microfone e system audio
+- transcricao pos-captura
+- transcricao realtime do audio do sistema
+- perfis de realtime
+- persistencia local de sessoes realtime
+- janela de sessoes gravadas
+- subtitle window para transcript realtime
+- fluxo OAuth preparado para capacidades futuras
 
 Ainda nao implementa:
 
-- captura de audio
-- transcricao
-- integracao com Obsidian
+- home / hub do produto
+- chat contextual
+- workspace de sessao
+- integracao funcional com Obsidian
 - hotkeys globais
-- selecao manual de monitor
-- fluxo real de reuniao
+- key mapping configuravel
+- captura de tela
 
 ## Estrutura Do Projeto
 
@@ -152,19 +158,22 @@ valide primeiro se o backend atual suporta isso.
 
 ## Objetivo De Produto
 
-O objetivo nao e ser um "helper de entrevista".
+O objetivo nao e ser um helper de entrevista.
 
-O objetivo e ser um assistente de reunioes e fluxo de pensamento para Linux:
+O objetivo e ser um copiloto pessoal Linux-native para:
 
-- capturar reunioes
+- ouvir o desktop em realtime
 - transcrever
-- resumir
-- salvar no Obsidian
-- oferecer um HUD/overlay minimo e rapido
+- permitir perguntar para uma LLM com contexto da sessao atual
+- aceitar contexto visual no futuro
+- reutilizar memoria pessoal do Obsidian
+- oferecer um HUD rapido e um hub de produto mais rico
 
 ## Documentos
 
-- escopo do produto: [docs/PRD.md](/home/israel/projetos/projetos-opensource/openvoice/docs/PRD.md)
+- visao e roadmap de produto: [docs/PRD.md](/home/israel/projetos/projetos-opensource/openvoice/docs/PRD.md)
+- estado atual implementado: [docs/spec.md](/home/israel/projetos/projetos-opensource/openvoice/docs/spec.md)
+- backlog tecnico atual: [docs/TODO.md](/home/israel/projetos/projetos-opensource/openvoice/docs/TODO.md)
 
 ## Skills Locais
 
