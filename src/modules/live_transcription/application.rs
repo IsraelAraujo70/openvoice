@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::modules::live_transcription::domain::{
-    LiveTranscriptionConfig, NoiseReductionMode, RuntimeEvent, TurnDetectionMode,
+    LiveTranscriptionConfig, RuntimeEvent, TurnDetectionMode,
 };
 use crate::modules::live_transcription::infrastructure::openai_realtime::{
     self, SessionHandle, SharedReceiver,
@@ -36,7 +36,7 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
         prompt: None,
         language: (!settings.openai_realtime_language.trim().is_empty())
             .then(|| settings.openai_realtime_language.clone()),
-        noise_reduction: Some(NoiseReductionMode::FarField),
+        noise_reduction: None,
         turn_detection: TurnDetectionMode::ServerVad {
             threshold: 0.5,
             prefix_padding_ms: 300,

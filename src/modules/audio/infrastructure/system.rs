@@ -222,7 +222,7 @@ fn spawn_live_reader_thread(
         let mut read_buffer = [0_u8; 4096];
         let mut pending = Vec::new();
         let mut output_chunk = Vec::with_capacity(LIVE_CHUNK_BYTES);
-        let mut keep_sample = true;
+        let mut pending_mono_sample = None;
 
         loop {
             match stdout.read(&mut read_buffer) {
@@ -232,7 +232,7 @@ fn spawn_live_reader_thread(
                     process_live_audio_bytes(
                         &mut pending,
                         &mut output_chunk,
-                        &mut keep_sample,
+                        &mut pending_mono_sample,
                         &chunk_sender,
                     );
                 }
@@ -255,7 +255,7 @@ fn spawn_live_reader_thread(
 fn process_live_audio_bytes(
     pending: &mut Vec<u8>,
     output_chunk: &mut Vec<u8>,
-    keep_sample: &mut bool,
+    pending_mono_sample: &mut Option<i16>,
     chunk_sender: &Sender<Vec<u8>>,
 ) {
     let mut offset = 0;
@@ -264,16 +264,21 @@ fn process_live_audio_bytes(
         let right = i16::from_le_bytes([pending[offset + 2], pending[offset + 3]]) as i32;
         let mono = ((left + right) / 2) as i16;
 
-        if *keep_sample {
-            output_chunk.extend_from_slice(&mono.to_le_bytes());
+        if let Some(previous) = pending_mono_sample.take() {
+            // Average each pair of 48 kHz mono samples before decimating to 24 kHz.
+            // This is a small low-pass step that preserves clarity better than
+            // dropping every other sample outright.
+            let filtered = ((previous as i32 + mono as i32) / 2) as i16;
+            output_chunk.extend_from_slice(&filtered.to_le_bytes());
 
             if output_chunk.len() >= LIVE_CHUNK_BYTES
                 && chunk_sender.send(std::mem::take(output_chunk)).is_err()
             {
                 return;
             }
+        } else {
+            *pending_mono_sample = Some(mono);
         }
-        *keep_sample = !*keep_sample;
         offset += 4;
     }
 
@@ -426,7 +431,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let mut pending = Vec::new();
         let mut output_chunk = Vec::new();
-        let mut keep_sample = true;
+        let mut pending_mono_sample = None;
 
         for sample in [
             100_i16, 300_i16, 200_i16, 400_i16, 500_i16, 700_i16, 600_i16, 800_i16,
@@ -434,17 +439,23 @@ mod tests {
             pending.extend_from_slice(&sample.to_le_bytes());
         }
 
-        process_live_audio_bytes(&mut pending, &mut output_chunk, &mut keep_sample, &tx);
+        process_live_audio_bytes(
+            &mut pending,
+            &mut output_chunk,
+            &mut pending_mono_sample,
+            &tx,
+        );
 
         assert!(rx.try_recv().is_err());
         assert!(pending.is_empty());
+        assert!(pending_mono_sample.is_none());
 
         let samples = output_chunk
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<_>>();
 
-        assert_eq!(samples, vec![200_i16, 600_i16]);
+        assert_eq!(samples, vec![250_i16, 650_i16]);
     }
 
     #[test]
@@ -452,7 +463,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let mut pending = Vec::new();
         let mut output_chunk = Vec::new();
-        let mut keep_sample = true;
+        let mut pending_mono_sample = None;
         let mut flushed = None;
 
         for _ in 0..64 {
@@ -460,7 +471,12 @@ mod tests {
                 pending.extend_from_slice(&2000_i16.to_le_bytes());
                 pending.extend_from_slice(&2000_i16.to_le_bytes());
             }
-            process_live_audio_bytes(&mut pending, &mut output_chunk, &mut keep_sample, &tx);
+            process_live_audio_bytes(
+                &mut pending,
+                &mut output_chunk,
+                &mut pending_mono_sample,
+                &tx,
+            );
 
             if let Ok(chunk) = rx.try_recv() {
                 flushed = Some(chunk);
