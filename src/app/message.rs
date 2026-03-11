@@ -48,7 +48,9 @@ pub enum Message {
     SubtitleWindowOpened(window::Id),
     CloseSubtitleWindow,
     // Live transcription persistence
-    LiveTranscriptionSaved(Result<i64, String>),
+    LiveSessionCreated(Result<i64, String>),
+    LiveSessionSegmentsPersisted(Result<usize, String>),
+    LiveSessionFinalized(Result<(), String>),
     // Sessions window
     OpenSessionsView,
     SessionsWindowOpened(window::Id),

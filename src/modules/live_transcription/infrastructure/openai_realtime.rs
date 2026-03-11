@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket, connect};
 
@@ -23,6 +23,16 @@ pub struct SessionHandle {
     worker: Option<JoinHandle<()>>,
 }
 
+struct RealtimeTelemetry {
+    enabled: bool,
+    session_started_at: Instant,
+    first_audio_sent_at: Option<Instant>,
+    first_delta_at: Option<Instant>,
+    first_completed_at: Option<Instant>,
+    audio_chunks_sent: usize,
+    completed_segments: usize,
+}
+
 impl SessionHandle {
     pub fn receiver(&self) -> SharedReceiver {
         Arc::clone(&self.receiver)
@@ -33,6 +43,72 @@ impl SessionHandle {
 
         if let Some(handle) = self.worker.take() {
             let _ = handle.join();
+        }
+    }
+}
+
+impl RealtimeTelemetry {
+    fn new() -> Self {
+        Self {
+            enabled: flag_from_env("OPENVOICE_LOG_REALTIME_METRICS"),
+            session_started_at: Instant::now(),
+            first_audio_sent_at: None,
+            first_delta_at: None,
+            first_completed_at: None,
+            audio_chunks_sent: 0,
+            completed_segments: 0,
+        }
+    }
+
+    fn mark_audio_chunk_sent(&mut self, chunk_len: usize) {
+        self.audio_chunks_sent += 1;
+
+        if self.first_audio_sent_at.is_none() {
+            let now = Instant::now();
+            self.first_audio_sent_at = Some(now);
+            self.log(format!(
+                "first_audio_chunk_ms={} bytes={chunk_len}",
+                now.duration_since(self.session_started_at).as_millis()
+            ));
+        }
+    }
+
+    fn mark_delta(&mut self, delta_len: usize) {
+        if self.first_delta_at.is_none() {
+            let now = Instant::now();
+            self.first_delta_at = Some(now);
+            self.log(format!(
+                "first_delta_ms={} chars={delta_len}",
+                now.duration_since(self.session_started_at).as_millis()
+            ));
+        }
+    }
+
+    fn mark_completed(&mut self, transcript_len: usize) {
+        self.completed_segments += 1;
+
+        if self.first_completed_at.is_none() {
+            let now = Instant::now();
+            self.first_completed_at = Some(now);
+            self.log(format!(
+                "first_completed_ms={} chars={transcript_len}",
+                now.duration_since(self.session_started_at).as_millis()
+            ));
+        }
+    }
+
+    fn finish(&self) {
+        self.log(format!(
+            "session_ms={} chunks_sent={} completed_segments={}",
+            self.session_started_at.elapsed().as_millis(),
+            self.audio_chunks_sent,
+            self.completed_segments
+        ));
+    }
+
+    fn log(&self, message: String) {
+        if self.enabled {
+            eprintln!("[openvoice][realtime][metrics] {message}");
         }
     }
 }
@@ -58,6 +134,7 @@ fn run_session(
     event_tx: Sender<RuntimeEvent>,
 ) {
     let (audio_tx, audio_rx) = mpsc::channel();
+    let mut telemetry = RealtimeTelemetry::new();
     let audio_stream = match system::start_default_live_stream(audio_tx) {
         Ok(stream) => stream,
         Err(error) => {
@@ -133,6 +210,7 @@ fn run_session(
                     let _ = event_tx.send(RuntimeEvent::Error(error));
                     break;
                 }
+                telemetry.mark_audio_chunk_sent(chunk.len());
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
@@ -144,7 +222,7 @@ fn run_session(
         }
 
         match socket.read() {
-            Ok(message) => handle_server_message(message, &event_tx),
+            Ok(message) => handle_server_message(message, &event_tx, &mut telemetry),
             Err(tungstenite::Error::Io(error))
                 if matches!(
                     error.kind(),
@@ -163,6 +241,7 @@ fn run_session(
     }
 
     let _ = audio_stream.stop();
+    telemetry.finish();
     let _ = event_tx.send(RuntimeEvent::Stopped);
 }
 
@@ -244,7 +323,11 @@ fn quantize_decimal(value: f32, decimals: u32) -> f64 {
     ((value as f64) * factor).round() / factor
 }
 
-fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
+fn handle_server_message(
+    message: Message,
+    event_tx: &Sender<RuntimeEvent>,
+    telemetry: &mut RealtimeTelemetry,
+) {
     let Message::Text(text) = message else {
         return;
     };
@@ -294,6 +377,7 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
                 .to_owned();
 
             if !item_id.is_empty() && !delta.is_empty() {
+                telemetry.mark_delta(delta.len());
                 if should_log_realtime_deltas() {
                     eprintln!("[openvoice][realtime][delta] {delta}");
                 }
@@ -313,6 +397,9 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
                 .to_owned();
 
             if !item_id.is_empty() {
+                if !transcript.trim().is_empty() {
+                    telemetry.mark_completed(transcript.len());
+                }
                 if should_log_realtime_transcripts() && !transcript.trim().is_empty() {
                     eprintln!("[openvoice][realtime][transcript] {transcript}");
                 }
