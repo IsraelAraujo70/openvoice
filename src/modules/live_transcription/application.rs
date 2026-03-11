@@ -8,6 +8,10 @@ use crate::modules::live_transcription::infrastructure::openai_realtime::{
 };
 use crate::modules::settings::domain::AppSettings;
 
+const ACCURACY_VAD_THRESHOLD: f32 = 0.42;
+const ACCURACY_PREFIX_PADDING_MS: u32 = 480;
+const ACCURACY_SILENCE_DURATION_MS: u32 = 700;
+
 pub struct ActiveLiveTranscription {
     session: SessionHandle,
 }
@@ -38,9 +42,9 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
             .then(|| settings.openai_realtime_language.clone()),
         noise_reduction: None,
         turn_detection: TurnDetectionMode::ServerVad {
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 250,
+            threshold: ACCURACY_VAD_THRESHOLD,
+            prefix_padding_ms: ACCURACY_PREFIX_PADDING_MS,
+            silence_duration_ms: ACCURACY_SILENCE_DURATION_MS,
         },
     };
 
