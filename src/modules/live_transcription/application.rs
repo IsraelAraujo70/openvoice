@@ -40,7 +40,7 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
         turn_detection: TurnDetectionMode::ServerVad {
             threshold: 0.5,
             prefix_padding_ms: 300,
-            silence_duration_ms: 500,
+            silence_duration_ms: 250,
         },
     };
 
