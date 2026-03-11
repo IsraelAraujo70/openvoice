@@ -74,7 +74,7 @@ impl Overlay {
             && !self.is_saving_settings
             && !self.is_openai_authenticating
             && !self.is_live_transcribing()
-            && self.has_openai_credentials
+            && self.settings.has_openai_realtime_api_key()
     }
 }
 

@@ -1,40 +1,48 @@
 use crate::app::{Message, Overlay};
+use crate::modules::settings::domain::SUPPORTED_OPENAI_REALTIME_LANGUAGES;
 use crate::ui::components::chrome_button::{self, ButtonKind};
-use iced::widget::{Space, button, column, container, row, text, text_input};
+use iced::widget::{
+    Space, button, column, container, pick_list, row, scrollable, text, text_input,
+};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
-    let save_settings = button(if state.is_saving_settings {
-        "Saving..."
-    } else {
-        "Save Settings"
-    })
-    .padding([12, 16])
-    .on_press_maybe((!state.is_saving_settings).then_some(Message::SaveSettings));
+    let save_settings = action_button(
+        if state.is_saving_settings {
+            "Saving..."
+        } else {
+            "Save Settings"
+        },
+        (!state.is_saving_settings).then_some(Message::SaveSettings),
+    );
 
     let openai_auth_action = if state.has_openai_credentials {
-        button(if state.is_openai_authenticating {
-            "Working..."
-        } else {
-            "Log out"
-        })
-        .padding([12, 16])
-        .on_press_maybe((!state.is_openai_authenticating).then_some(Message::LogoutOpenAi))
+        action_button(
+            if state.is_openai_authenticating {
+                "Working..."
+            } else {
+                "Log out"
+            },
+            (!state.is_openai_authenticating).then_some(Message::LogoutOpenAi),
+        )
     } else if state.pending_openai_oauth.is_some() {
-        button(if state.is_openai_authenticating {
-            "Waiting for callback..."
-        } else {
-            "OAuth pending"
-        })
-        .padding([12, 16])
+        action_button(
+            if state.is_openai_authenticating {
+                "Waiting for callback..."
+            } else {
+                "OAuth pending"
+            },
+            None,
+        )
     } else {
-        button(if state.is_openai_authenticating {
-            "Signing in..."
-        } else {
-            "Sign in with ChatGPT"
-        })
-        .padding([12, 16])
-        .on_press_maybe((!state.is_openai_authenticating).then_some(Message::StartOpenAiOAuthLogin))
+        action_button(
+            if state.is_openai_authenticating {
+                "Signing in..."
+            } else {
+                "Sign in with ChatGPT"
+            },
+            (!state.is_openai_authenticating).then_some(Message::StartOpenAiOAuthLogin),
+        )
     };
 
     let manual_callback_block = state.pending_openai_oauth.as_ref().map(|flow| {
@@ -52,13 +60,12 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
                 )
                 .on_input(Message::OpenAiOAuthCallbackUrlChanged)
                 .padding([12, 14]),
-                button(if state.is_openai_authenticating {
-                    "Finishing..."
-                } else {
-                    "Use callback URL"
-                })
-                .padding([12, 16])
-                .on_press_maybe(
+                action_button(
+                    if state.is_openai_authenticating {
+                        "Finishing..."
+                    } else {
+                        "Use callback URL"
+                    },
                     (!state.is_openai_authenticating).then_some(Message::SubmitOpenAiOAuthCallback)
                 ),
             ]
@@ -86,11 +93,17 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             container(
                 column![
                     section_title("OpenRouter"),
+                    text(
+                        "OpenRouter e usado no fluxo de gravacao do microfone: grava, envia o audio final e copia a transcricao para o clipboard."
+                    )
+                    .size(12)
+                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
                     text_input(
                         "OpenRouter API key",
                         &state.settings_form.openrouter_api_key
                     )
                     .on_input(Message::SettingsApiKeyChanged)
+                    .secure(true)
                     .padding([12, 14]),
                     text_input("Model", &state.settings_form.openrouter_model)
                         .on_input(Message::SettingsModelChanged)
@@ -117,12 +130,39 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             container(
                 column![
                     section_title("OpenAI Realtime"),
+                    text(
+                        "OpenAI Realtime e usado na transcricao ao vivo do audio do sistema. Aqui entram a API key da Platform e o modelo de transcricao."
+                    )
+                    .size(12)
+                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                    text_input("OpenAI API key", &state.settings_form.openai_realtime_api_key)
+                        .on_input(Message::SettingsOpenAiRealtimeApiKeyChanged)
+                        .secure(true)
+                        .padding([12, 14]),
                     text_input("Transcription model", &state.settings_form.openai_realtime_model)
                         .on_input(Message::SettingsOpenAiRealtimeModelChanged)
                         .padding([12, 14]),
+                    pick_list(
+                        SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS,
+                        selected_language_option(&state.settings_form.openai_realtime_language),
+                        |option| {
+                            Message::SettingsOpenAiRealtimeLanguageChanged(
+                                option.code().to_owned()
+                            )
+                        }
+                    )
+                    .placeholder("Language"),
+                ]
+                .spacing(14),
+            )
+            .padding(18)
+            .style(|_| card_style()),
+            container(
+                column![
+                    section_title("OpenAI OAuth"),
                     openai_auth_action,
                     text(
-                        "Use aqui o modelo de transcricao da sessao realtime, como gpt-4o-mini-transcribe."
+                        "Mantenha o login ChatGPT aqui para futuros fluxos que vao escrever, sincronizar ou usar sessao OAuth. Realtime nao depende mais desta sessao."
                     )
                     .size(12)
                     .color(Color::from_rgba8(148, 163, 184, 0.88)),
@@ -142,14 +182,22 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
                     status_row("Audio", "dictation uses microphone only in the current HUD flow"),
                     status_row(
                         "Realtime auth",
+                        if state.settings.has_openai_realtime_api_key() {
+                            "configured via API key"
+                        } else {
+                            "missing OpenAI API key"
+                        },
+                    ),
+                    status_row(
+                        "ChatGPT OAuth",
                         if state.has_openai_credentials {
-                            "connected via ChatGPT"
+                            "connected"
                         } else {
                             "not signed in"
                         },
                     ),
                     status_row(
-                        "OpenAI account",
+                        "OAuth account",
                         state.openai_account_label.as_deref().unwrap_or("unknown"),
                     ),
                 ]
@@ -187,7 +235,6 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         .spacing(18),
     )
     .width(Length::Fill)
-    .height(Length::Fill)
     .padding(20)
     .style(|_| {
         container::Style::default()
@@ -205,7 +252,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             .color(Color::from_rgb8(248, 250, 252))
     });
 
-    container(shell)
+    container(scrollable(shell))
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(12)
@@ -230,6 +277,103 @@ fn status_row(label: &'static str, value: impl Into<String>) -> Element<'static,
         text(value).size(13),
     ]
     .into()
+}
+
+fn action_button<'a>(label: impl Into<String>, on_press: Option<Message>) -> Element<'a, Message> {
+    button(text(label.into()).size(14))
+        .padding([12, 16])
+        .width(Length::Shrink)
+        .on_press_maybe(on_press)
+        .style(|_, status| match status {
+            button::Status::Disabled => button::Style {
+                background: Some(Background::Color(Color::from_rgba8(34, 211, 238, 0.12))),
+                border: Border {
+                    color: Color::from_rgba8(34, 211, 238, 0.18),
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                text_color: Color::from_rgba8(226, 232, 240, 0.4),
+                shadow: Shadow::default(),
+                snap: false,
+            },
+            button::Status::Hovered => button::Style {
+                background: Some(Background::Color(Color::from_rgba8(34, 211, 238, 0.92))),
+                border: Border {
+                    color: Color::from_rgba8(103, 232, 249, 0.95),
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                text_color: Color::from_rgb8(8, 14, 20),
+                shadow: Shadow {
+                    color: Color::from_rgba8(34, 211, 238, 0.18),
+                    offset: iced::Vector::new(0.0, 8.0),
+                    blur_radius: 24.0,
+                },
+                snap: false,
+            },
+            _ => button::Style {
+                background: Some(Background::Color(Color::from_rgba8(34, 211, 238, 0.82))),
+                border: Border {
+                    color: Color::from_rgba8(34, 211, 238, 0.24),
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                text_color: Color::from_rgb8(8, 14, 20),
+                shadow: Shadow {
+                    color: Color::from_rgba8(34, 211, 238, 0.12),
+                    offset: iced::Vector::new(0.0, 6.0),
+                    blur_radius: 18.0,
+                },
+                snap: false,
+            },
+        })
+        .into()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LanguageOption {
+    label: &'static str,
+    code: &'static str,
+}
+
+impl LanguageOption {
+    const fn new(label: &'static str, code: &'static str) -> Self {
+        Self { label, code }
+    }
+
+    fn code(self) -> &'static str {
+        self.code
+    }
+}
+
+impl std::fmt::Display for LanguageOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.label.fmt(f)
+    }
+}
+
+const SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS: [LanguageOption; 8] = [
+    LanguageOption::new("Auto", ""),
+    LanguageOption::new("Portuguese", "pt"),
+    LanguageOption::new("English", "en"),
+    LanguageOption::new("German", "de"),
+    LanguageOption::new("Spanish", "es"),
+    LanguageOption::new("French", "fr"),
+    LanguageOption::new("Italian", "it"),
+    LanguageOption::new("Japanese", "ja"),
+];
+
+fn selected_language_option(language: &str) -> Option<LanguageOption> {
+    let normalized = if SUPPORTED_OPENAI_REALTIME_LANGUAGES.contains(&language) {
+        language
+    } else {
+        ""
+    };
+
+    SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS
+        .iter()
+        .copied()
+        .find(|option| option.code == normalized)
 }
 
 fn card_style() -> container::Style {

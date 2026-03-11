@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use crate::modules::auth::application as auth_application;
-use crate::modules::auth::domain::OpenAiOAuthSession;
 use crate::modules::live_transcription::domain::{LiveTranscriptionConfig, RuntimeEvent};
 use crate::modules::live_transcription::infrastructure::openai_realtime::{
     self, SessionHandle, SharedReceiver,
@@ -22,17 +20,20 @@ impl ActiveLiveTranscription {
     }
 }
 
-pub fn load_runtime_session() -> Result<OpenAiOAuthSession, String> {
-    auth_application::load_or_refresh_session()
-}
-
 pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTranscription, String> {
-    let session = load_runtime_session()?;
+    let bearer_token = settings.openai_realtime_api_key.trim();
+    if bearer_token.is_empty() {
+        return Err(String::from(
+            "Cadastre e salve uma OpenAI API key antes de iniciar a transcription realtime.",
+        ));
+    }
+
     let config = LiveTranscriptionConfig {
-        session,
+        bearer_token: bearer_token.to_owned(),
         model: settings.openai_realtime_model.clone(),
         prompt: None,
-        language: None,
+        language: (!settings.openai_realtime_language.trim().is_empty())
+            .then(|| settings.openai_realtime_language.clone()),
     };
 
     let session = openai_realtime::start_session(config)?;

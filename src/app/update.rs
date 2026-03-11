@@ -140,6 +140,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openrouter_api_key = value;
             Task::none()
         }
+        Message::SettingsOpenAiRealtimeApiKeyChanged(value) => {
+            state.settings_form.openai_realtime_api_key = value;
+            Task::none()
+        }
         Message::SettingsModelChanged(value) => {
             state.settings_form.openrouter_model = value;
             Task::none()
@@ -148,21 +152,29 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openai_realtime_model = value;
             Task::none()
         }
+        Message::SettingsOpenAiRealtimeLanguageChanged(value) => {
+            state.settings_form.openai_realtime_language = value;
+            Task::none()
+        }
         Message::SaveSettings => {
             state.is_saving_settings = true;
             state.settings_note = Some(String::from("Salvando settings..."));
             state.error = None;
 
             let openrouter_api_key = state.settings_form.openrouter_api_key.clone();
+            let openai_realtime_api_key = state.settings_form.openai_realtime_api_key.clone();
             let openrouter_model = state.settings_form.openrouter_model.clone();
             let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
+            let openai_realtime_language = state.settings_form.openai_realtime_language.clone();
 
             Task::perform(
                 async move {
                     settings_application::save_settings(
                         openrouter_api_key,
+                        openai_realtime_api_key,
                         openrouter_model,
                         openai_realtime_model,
+                        openai_realtime_language,
                     )
                 },
                 Message::SettingsSaved,
@@ -291,7 +303,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.has_openai_credentials = snapshot.is_authenticated;
                     state.openai_account_label = snapshot.account_label;
                     state.settings_note = Some(String::from(
-                        "Login ChatGPT concluido. Realtime transcription pronta para uso.",
+                        "Login ChatGPT concluido para modelos OAuth futuros.",
                     ));
                     state.error = None;
                     Task::none()
@@ -439,9 +451,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::StartRealtimeTranscription => {
             if !state.can_start_realtime_transcription() {
                 state.phase = OverlayPhase::Error;
-                state.error = Some(if !state.has_openai_credentials {
+                state.error = Some(if !state.settings.has_openai_realtime_api_key() {
                     String::from(
-                        "Entre com ChatGPT nas settings antes de iniciar a transcription realtime.",
+                        "Cadastre e salve uma OpenAI API key nas settings antes de iniciar a transcription realtime.",
                     )
                 } else {
                     String::from("Finalize a acao atual antes de iniciar a transcription realtime.")
@@ -517,7 +529,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         }
 
                         state.live_partial_transcript.push_str(&delta);
-                        state.preview = Some(state.live_partial_transcript.clone());
                     }
                 }
                 RuntimeEvent::TranscriptCompleted {
@@ -526,7 +537,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 } => {
                     if !transcript.trim().is_empty() {
                         state.live_completed_segments.push(transcript.clone());
-                        state.preview = Some(transcript);
                     }
                     state.live_partial_item_id = Some(item_id);
                     state.live_partial_transcript.clear();

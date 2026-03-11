@@ -91,14 +91,6 @@ fn run_session(
         "realtime=v1".parse().expect("valid beta header"),
     );
 
-    if let Some(account_id) = config.account_id() {
-        if let Ok(header_value) = account_id.parse() {
-            request
-                .headers_mut()
-                .insert("ChatGPT-Account-Id", header_value);
-        }
-    }
-
     let (mut socket, _) = match connect(request) {
         Ok(connection) => connection,
         Err(error) => {
@@ -115,10 +107,6 @@ fn run_session(
     }
 
     let session_update = build_session_update(&config);
-    eprintln!(
-        "[openvoice][realtime] sending session update {}",
-        session_update
-    );
     if let Err(error) = socket.send(Message::Text(session_update.to_string())) {
         let _ = event_tx.send(RuntimeEvent::Error(format!(
             "Falha ao configurar a sessao realtime: {error}"
@@ -137,16 +125,11 @@ fn run_session(
 
         match audio_rx.recv_timeout(Duration::from_millis(50)) {
             Ok(chunk) => {
-                let chunk_len = chunk.len();
                 let payload = json!({
                     "type": "input_audio_buffer.append",
                     "audio": base64::engine::general_purpose::STANDARD.encode(&chunk),
                 });
 
-                eprintln!(
-                    "[openvoice][realtime] sending audio chunk bytes={}",
-                    chunk_len
-                );
                 if let Err(error) = socket.send(Message::Text(payload.to_string())) {
                     let _ = event_tx.send(RuntimeEvent::Error(format!(
                         "Falha ao enviar audio para o realtime: {error}"
@@ -219,12 +202,6 @@ fn build_session_update(config: &LiveTranscriptionConfig) -> Value {
 }
 
 fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
-    if let Message::Text(text) = &message {
-        eprintln!("[openvoice][realtime] recv {text}");
-    } else {
-        eprintln!("[openvoice][realtime] recv non-text message");
-    }
-
     let Message::Text(text) = message else {
         return;
     };
@@ -294,6 +271,10 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
                 .to_owned();
 
             if !item_id.is_empty() {
+                if should_log_realtime_transcripts() && !transcript.trim().is_empty() {
+                    eprintln!("[openvoice][realtime][transcript] {transcript}");
+                }
+
                 let _ = event_tx.send(RuntimeEvent::TranscriptCompleted {
                     item_id,
                     transcript,
@@ -313,6 +294,14 @@ fn handle_server_message(message: Message, event_tx: &Sender<RuntimeEvent>) {
         }
         _ => {}
     }
+}
+
+fn should_log_realtime_transcripts() -> bool {
+    std::env::var("OPENVOICE_LOG_REALTIME_TRANSCRIPTS")
+        .ok()
+        .as_deref()
+        .map(|value| matches!(value, "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
 }
 
 fn configure_stream_timeout(

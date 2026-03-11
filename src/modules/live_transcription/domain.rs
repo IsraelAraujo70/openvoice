@@ -1,12 +1,10 @@
 #![allow(dead_code)]
 
-use crate::modules::auth::domain::OpenAiOAuthSession;
-
 pub const DEFAULT_TRANSCRIPTION_MODEL: &str = "gpt-4o-mini-transcribe";
 
 #[derive(Debug, Clone)]
 pub struct LiveTranscriptionConfig {
-    pub session: OpenAiOAuthSession,
+    pub bearer_token: String,
     pub model: String,
     pub prompt: Option<String>,
     pub language: Option<String>,
@@ -14,11 +12,7 @@ pub struct LiveTranscriptionConfig {
 
 impl LiveTranscriptionConfig {
     pub fn bearer_token(&self) -> &str {
-        self.session.bearer_token()
-    }
-
-    pub fn account_id(&self) -> Option<&str> {
-        self.session.account_id.as_deref()
+        &self.bearer_token
     }
 }
 
