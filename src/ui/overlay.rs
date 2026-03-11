@@ -50,6 +50,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         Space::new().width(Length::Fill),
         chrome_button::view("CC", realtime_action, ButtonKind::Caption(accent)),
         chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
+        chrome_button::view("≡", Some(Message::OpenSessionsView), ButtonKind::Ghost),
         chrome_button::view("⚙", Some(Message::OpenSettingsView), ButtonKind::Ghost),
         chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
     ]

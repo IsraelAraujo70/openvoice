@@ -5,6 +5,10 @@ const HUD_WIDTH: f32 = 380.0;
 const HUD_HEIGHT: f32 = 96.0;
 const SETTINGS_WIDTH: f32 = 540.0;
 const SETTINGS_HEIGHT: f32 = 760.0;
+const SUBTITLE_WIDTH: f32 = 860.0;
+const SUBTITLE_HEIGHT: f32 = 80.0;
+const SESSIONS_WIDTH: f32 = 680.0;
+const SESSIONS_HEIGHT: f32 = 720.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MonitorGeometry {
@@ -50,6 +54,38 @@ pub fn settings_window_settings() -> window::Settings {
     }
 }
 
+pub fn subtitle_window_settings(primary: Option<MonitorGeometry>) -> window::Settings {
+    window::Settings {
+        decorations: false,
+        transparent: true,
+        resizable: false,
+        level: window::Level::AlwaysOnTop,
+        size: Size::new(SUBTITLE_WIDTH, SUBTITLE_HEIGHT),
+        position: primary
+            .map(|m| window::Position::Specific(subtitle_position(m)))
+            .unwrap_or(window::Position::Specific(Point::new(200.0, 900.0))),
+        exit_on_close_request: false,
+        ..Default::default()
+    }
+}
+
+pub fn sessions_window_settings(primary: Option<MonitorGeometry>) -> window::Settings {
+    window::Settings {
+        decorations: false,
+        transparent: true,
+        resizable: true,
+        level: window::Level::Normal,
+        size: primary
+            .map(sessions_size)
+            .unwrap_or_else(|| Size::new(SESSIONS_WIDTH, SESSIONS_HEIGHT)),
+        position: primary
+            .map(|m| window::Position::Specific(sessions_position(m)))
+            .unwrap_or(window::Position::Specific(Point::ORIGIN)),
+        exit_on_close_request: false,
+        ..Default::default()
+    }
+}
+
 fn hud_size(monitor: MonitorGeometry) -> Size {
     Size::new(
         HUD_WIDTH.min(monitor.size.width.max(HUD_WIDTH)),
@@ -73,6 +109,30 @@ fn settings_size(monitor: MonitorGeometry) -> Size {
 
 fn settings_position(monitor: MonitorGeometry) -> Point {
     let size = settings_size(monitor);
+
+    Point::new(
+        monitor.position.x + ((monitor.size.width - size.width) / 2.0).max(32.0),
+        monitor.position.y + ((monitor.size.height - size.height) / 2.0).max(32.0),
+    )
+}
+
+fn subtitle_position(monitor: MonitorGeometry) -> Point {
+    // Bottom-center, with a margin from the bottom edge
+    Point::new(
+        monitor.position.x + ((monitor.size.width - SUBTITLE_WIDTH) / 2.0).max(0.0),
+        monitor.position.y + monitor.size.height - SUBTITLE_HEIGHT - 96.0,
+    )
+}
+
+fn sessions_size(monitor: MonitorGeometry) -> Size {
+    Size::new(
+        SESSIONS_WIDTH.min((monitor.size.width - 96.0).max(480.0)),
+        SESSIONS_HEIGHT.min((monitor.size.height - 96.0).max(480.0)),
+    )
+}
+
+fn sessions_position(monitor: MonitorGeometry) -> Point {
+    let size = sessions_size(monitor);
 
     Point::new(
         monitor.position.x + ((monitor.size.width - size.width) / 2.0).max(32.0),
