@@ -16,16 +16,16 @@ O `TODO.md` descreve o trabalho pendente.
 
 ## Navegacao E Superficies
 
-- criar `home / hub`
-- transformar `sessions` em explorador + detalhe de sessao
-- tirar `settings` do papel de tela principal do produto
-- introduzir `ask / chat surface`
+- ~~criar `home / hub`~~ feito
+- ~~transformar `sessions` em aba dentro da Home~~ feito
+- ~~tirar `settings` do papel de tela principal~~ feito (agora e aba na Home)
+- introduzir `ask / chat surface` (card "Perguntar Algo" ja existe desabilitado)
 
 ## Sessao
 
 - adicionar titulo de sessao
 - adicionar resumo por sessao
-- adicionar busca por transcript e metadata
+- ~~adicionar busca por transcript e metadata~~ feito (busca client-side na aba Sessoes)
 - adicionar acao `continuar sessao`
 
 ## Chat E Copiloto

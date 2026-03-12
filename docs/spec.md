@@ -36,15 +36,18 @@ Hoje a aplicacao roda como um shell em `src/app/` com:
 
 ### Janelas Atuais
 
-O runtime hoje lida com tres janelas principais:
+O runtime hoje lida com duas janelas:
 
-- HUD principal
-- subtitle window
-- sessions window
+- janela principal (compartilhada entre HUD e Home via morph)
+- subtitle window (flutuante, passthrough)
+
+A janela principal alterna entre dois modos:
+
+- **HUD**: barra compacta (380x96), sempre no topo, transparente
+- **Home**: view expandida (700x800), nivel normal, com abas
 
 Ainda nao existe:
 
-- home / hub consolidado
 - chat surface
 - session workspace completo
 
@@ -369,42 +372,46 @@ Observacao:
 
 A UI atual tem um HUD leve com:
 
-- status
+- status (fase, hint, erro)
 - start / stop realtime
 - start / stop dictation
-- abrir settings
-- abrir sessions
+- abrir Home (botao casa)
+- abrir Sessions tab (botao lista)
+- toggle passthrough (apenas no modo HUD)
 
-### Settings
+### Home / Hub
 
-A tela de settings hoje ja permite:
+A Home e a view expandida principal. Abre morphando a janela HUD para 700x800. Possui tres abas:
 
-- configurar `OpenRouter`
-- configurar `OpenAI Realtime`
-- escolher idioma do realtime
-- escolher profile do realtime
-- gerenciar OAuth OpenAI para fluxos futuros
+#### Aba Inicio
 
-Limite atual:
+- 3 action cards: Ouvir Desktop, Ditar, Perguntar Algo (desabilitado, badge "em breve")
+- cards refletem estado ativo (label muda para "Parar Escuta" / "Parar Ditado")
+- clicar em um action card fecha Home, volta ao HUD e inicia a acao
+- status hints: mostra estado do realtime, ditado e configuracao de API keys
+- sessoes recentes: mostra as ultimas 3 sessoes com preview e link para a aba Sessoes
 
-- settings ainda sao uma tela separada e centralizam mais papel do que deveriam
+#### Aba Sessoes
 
-### Sessions
-
-A tela de sessions hoje ja permite:
-
-- listar sessoes salvas
-- expandir detalhe
-- ver transcript
+- lista de sessoes salvas com data, idioma, modelo e contagem de segmentos
+- busca client-side por texto (filtra por data, idioma, modelo e preview)
+- expandir detalhe com transcript completo
 - copiar transcript
 
-Limites atuais:
+#### Aba Configuracoes
 
-- nao existe busca
-- nao existe titulo
-- nao existe resumo
-- nao existe `continuar sessao`
-- ainda e uma janela funcional, nao um workspace de produto
+- configurar OpenRouter API key e modelo
+- configurar OpenAI Realtime API key e modelo
+- escolher idioma e profile do realtime
+- gerenciar OAuth OpenAI para fluxos futuros
+
+### Settings (legado)
+
+Settings nao e mais uma tela separada. Vive dentro da aba Configuracoes na Home.
+
+### Sessions (legado)
+
+Sessions nao e mais uma janela separada. Vive dentro da aba Sessoes na Home.
 
 ### Subtitle Window
 
@@ -419,7 +426,10 @@ Hoje existe uma subtitle window para o realtime:
 
 Em [`src/app/state.rs`](/home/israel/projetos/projetos-opensource/openvoice/src/app/state.rs), o estado central hoje já modela:
 
-- ids das janelas
+- id da janela principal (HUD/Home compartilhada)
+- id da subtitle window
+- `MainView` enum (Hud ou Home)
+- `HomeTab` enum (Home, Sessions, Settings)
 - settings carregadas
 - estado de auth
 - recorder de dictation
@@ -427,7 +437,7 @@ Em [`src/app/state.rs`](/home/israel/projetos/projetos-opensource/openvoice/src/
 - transcript parcial
 - segmentos completos
 - estado da persistencia incremental local
-- lista de sessoes
+- lista de sessoes com busca client-side
 - sessao selecionada
 
 Isso significa que o app atual ja esta parcialmente preparado para:
@@ -514,6 +524,12 @@ Para microfone:
 src/
 ├── app/
 ├── ui/
+│   ├── home.rs         # Home/Hub view com 3 abas
+│   ├── overlay.rs      # HUD floating bar
+│   ├── sessions.rs     # Aba Sessoes (tab_content)
+│   ├── settings.rs     # Aba Configuracoes (tab_content)
+│   ├── subtitle.rs     # Subtitle window flutuante
+│   └── components/
 ├── platform/
 └── modules/
     ├── audio/
@@ -525,11 +541,8 @@ src/
 
 ## Lacunas Atuais
 
-- falta home / hub do produto
-- falta chat contextual
-- falta ask surface
+- falta chat contextual / ask surface
 - falta session workspace completo
-- falta busca no historico
 - falta resumo por sessao
 - falta titulo por sessao
 - falta captura visual
