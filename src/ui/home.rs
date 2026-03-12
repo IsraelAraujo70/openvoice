@@ -95,6 +95,10 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
 
     let mut content = column![cards].spacing(16);
 
+    // Status hints
+    let status = status_hints(state);
+    content = content.push(status);
+
     if let Some(err) = &state.error {
         content = content.push(
             container(
@@ -110,6 +114,69 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
     }
 
     content.into()
+}
+
+fn status_hints(state: &Overlay) -> Element<'_, Message> {
+    let mut items: Vec<Element<'_, Message>> = Vec::new();
+
+    // Realtime transcription status
+    if state.is_live_transcribing() {
+        let seg_count = state.live_completed_segments.len() + state.live_persisted_segment_count;
+        let detail = if seg_count > 0 {
+            format!("Realtime ativo \u{2022} {seg_count} segmento(s)")
+        } else {
+            String::from("Realtime ativo \u{2022} aguardando audio...")
+        };
+        items.push(status_pill(&detail, Color::from_rgb8(34, 211, 238)));
+    }
+
+    // Dictation status
+    if state.is_dictation_recording() {
+        items.push(status_pill(
+            "Ditado gravando...",
+            Color::from_rgb8(251, 146, 60),
+        ));
+    } else if state.is_processing() {
+        items.push(status_pill(
+            "Processando ditado...",
+            Color::from_rgb8(251, 146, 60),
+        ));
+    }
+
+    // Provider status
+    if !state.settings.has_api_key() {
+        items.push(status_pill(
+            "OpenRouter API key nao configurada",
+            Color::from_rgb8(248, 113, 113),
+        ));
+    }
+    if !state.settings.has_openai_realtime_api_key() {
+        items.push(status_pill(
+            "OpenAI Realtime API key nao configurada",
+            Color::from_rgb8(248, 113, 113),
+        ));
+    }
+
+    if items.is_empty() {
+        items.push(status_pill(
+            "Pronto",
+            Color::from_rgba8(148, 163, 184, 0.60),
+        ));
+    }
+
+    column(items).spacing(6).into()
+}
+
+fn status_pill<'a>(label: &str, accent: Color) -> Element<'a, Message> {
+    let dot = text("\u{25CF} ").size(10).color(accent);
+    let lbl = text(label.to_string())
+        .size(12)
+        .color(Color::from_rgba8(226, 232, 240, 0.75));
+
+    container(row![dot, lbl].align_y(Alignment::Center))
+        .padding([6, 12])
+        .style(move |_| status_pill_style())
+        .into()
 }
 
 fn action_card<'a>(
@@ -298,6 +365,16 @@ fn error_card_style() -> container::Style {
             radius: 14.0.into(),
         })
         .color(Color::from_rgb8(255, 207, 164))
+}
+
+fn status_pill_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(255, 255, 255, 0.04)))
+        .border(Border {
+            color: Color::from_rgba8(255, 255, 255, 0.07),
+            width: 1.0,
+            radius: 8.0.into(),
+        })
 }
 
 fn ghost_btn_style() -> button::Style {
