@@ -893,6 +893,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             Task::none()
         }
 
+        Message::SessionsSearchChanged(query) => {
+            state.sessions_search_query = query;
+            Task::none()
+        }
+
         Message::SessionSelected(id) => {
             // id == 0 is a sentinel for "deselect"
             if id == 0 || state.selected_session_id == Some(id) {

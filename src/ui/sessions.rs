@@ -6,7 +6,8 @@ use iced::widget::{button, column, container, row, scrollable, text, text_input,
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
-    let search_bar = text_input("Buscar sessoes...", "")
+    let search_bar = text_input("Buscar sessoes...", &state.sessions_search_query)
+        .on_input(Message::SessionsSearchChanged)
         .padding([10, 14])
         .size(13);
 
@@ -30,9 +31,36 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
 }
 
 fn sessions_list(state: &Overlay) -> Element<'_, Message> {
+    let query = state.sessions_search_query.to_lowercase();
     let mut col = column![].spacing(8);
 
-    for session in &state.sessions_list {
+    let filtered: Vec<&SessionSummary> = state
+        .sessions_list
+        .iter()
+        .filter(|s| {
+            if query.is_empty() {
+                return true;
+            }
+            let haystack = format!(
+                "{} {} {} {}",
+                s.started_at,
+                s.language.as_deref().unwrap_or(""),
+                s.model.as_deref().unwrap_or(""),
+                s.preview,
+            )
+            .to_lowercase();
+            haystack.contains(&query)
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        return text("Nenhuma sessao encontrada para esta busca.")
+            .size(13)
+            .color(muted())
+            .into();
+    }
+
+    for session in filtered {
         let is_selected = state.selected_session_id == Some(session.id);
         col = col.push(session_card(state, session, is_selected));
     }
