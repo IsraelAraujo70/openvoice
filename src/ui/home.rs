@@ -1,6 +1,7 @@
 use crate::app::{HomeTab, Message, Overlay};
+use crate::modules::live_transcription::infrastructure::db::format_iso_for_display;
 use crate::ui::{sessions, settings};
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -21,7 +22,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
     let tabs = tab_bar(state.home_tab);
 
     let content: Element<'_, Message> = match state.home_tab {
-        HomeTab::Home => home_content(state),
+        HomeTab::Home => scrollable(home_content(state)).height(Length::Fill).into(),
         HomeTab::Sessions => sessions::tab_content(state),
         HomeTab::Settings => settings::tab_content(state),
     };
@@ -98,6 +99,11 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
     // Status hints
     let status = status_hints(state);
     content = content.push(status);
+
+    // Recent sessions (up to 3)
+    if !state.sessions_list.is_empty() {
+        content = content.push(recent_sessions(state));
+    }
 
     if let Some(err) = &state.error {
         content = content.push(
@@ -177,6 +183,67 @@ fn status_pill<'a>(label: &str, accent: Color) -> Element<'a, Message> {
         .padding([6, 12])
         .style(move |_| status_pill_style())
         .into()
+}
+
+fn recent_sessions(state: &Overlay) -> Element<'_, Message> {
+    let header_row = row![
+        text("Sessoes recentes")
+            .size(14)
+            .color(Color::from_rgba8(226, 232, 240, 0.80)),
+        Space::new().width(Length::Fill),
+        button(
+            text("Ver todas")
+                .size(11)
+                .color(Color::from_rgb8(34, 211, 238)),
+        )
+        .on_press(Message::SwitchHomeTab(HomeTab::Sessions))
+        .style(|_, _| ghost_btn_style())
+        .padding([2, 6]),
+    ]
+    .align_y(Alignment::Center);
+
+    let mut col = column![].spacing(6);
+    for session in state.sessions_list.iter().take(3) {
+        let date = format_iso_for_display(&session.started_at);
+        let lang = session.language.as_deref().unwrap_or("?");
+        let segs = session.segment_count;
+        let preview = if session.preview.len() > 80 {
+            format!("{}...", &session.preview[..80])
+        } else {
+            session.preview.clone()
+        };
+
+        let card = container(
+            column![
+                row![
+                    text(date)
+                        .size(12)
+                        .color(Color::from_rgba8(226, 232, 240, 0.85)),
+                    Space::new().width(Length::Fill),
+                    text(format!("{lang} \u{00B7} {segs} seg"))
+                        .size(10)
+                        .color(Color::from_rgba8(148, 163, 184, 0.55)),
+                ]
+                .align_y(Alignment::Center),
+                text(preview)
+                    .size(11)
+                    .color(Color::from_rgba8(148, 163, 184, 0.65)),
+            ]
+            .spacing(4),
+        )
+        .width(Length::Fill)
+        .padding([10, 14])
+        .style(|_| recent_card_style());
+
+        col = col.push(
+            button(card)
+                .width(Length::Fill)
+                .on_press(Message::SwitchHomeTab(HomeTab::Sessions))
+                .style(|_, _| transparent_btn_style()),
+        );
+    }
+
+    column![header_row, col].spacing(10).into()
 }
 
 fn action_card<'a>(
@@ -378,6 +445,26 @@ fn status_pill_style() -> container::Style {
 }
 
 fn ghost_btn_style() -> button::Style {
+    button::Style {
+        background: None,
+        border: Border::default(),
+        shadow: Shadow::default(),
+        text_color: Color::WHITE,
+        snap: false,
+    }
+}
+
+fn recent_card_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(255, 255, 255, 0.04)))
+        .border(Border {
+            color: Color::from_rgba8(255, 255, 255, 0.07),
+            width: 1.0,
+            radius: 10.0.into(),
+        })
+}
+
+fn transparent_btn_style() -> button::Style {
     button::Style {
         background: None,
         border: Border::default(),

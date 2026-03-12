@@ -125,20 +125,35 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.home_tab = HomeTab::Home;
             state.error = None;
 
-            state.main_window_id.map_or_else(Task::none, |window_id| {
-                let settings = app_window::home_window_settings();
-                let position = match settings.position {
-                    window::Position::Specific(point) => point,
-                    _ => iced::Point::ORIGIN,
-                };
+            // Pre-load sessions for the recent sessions summary on the Home tab
+            state.sessions_loading = true;
 
-                Task::batch([
-                    window::disable_mouse_passthrough(window_id),
-                    window::resize(window_id, settings.size),
-                    window::move_to(window_id, position),
-                    window::set_level(window_id, window::Level::Normal),
-                ])
-            })
+            state.main_window_id.map_or_else(
+                || {
+                    Task::perform(
+                        async { db::list_sessions() },
+                        Message::SessionsLoaded,
+                    )
+                },
+                |window_id| {
+                    let settings = app_window::home_window_settings();
+                    let position = match settings.position {
+                        window::Position::Specific(point) => point,
+                        _ => iced::Point::ORIGIN,
+                    };
+
+                    Task::batch([
+                        window::disable_mouse_passthrough(window_id),
+                        window::resize(window_id, settings.size),
+                        window::move_to(window_id, position),
+                        window::set_level(window_id, window::Level::Normal),
+                        Task::perform(
+                            async { db::list_sessions() },
+                            Message::SessionsLoaded,
+                        ),
+                    ])
+                },
+            )
         }
 
         Message::CloseHomeView => {
