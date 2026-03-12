@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -14,6 +14,7 @@ pub struct SessionSummary {
     pub model: Option<String>,
     pub segment_count: i64,
     pub preview: String,
+    pub title: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,20 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_lt_segments_session_position
         ON lt_segments(session_id, position);",
     )
-    .map_err(|e| format!("Nao consegui criar o schema SQLite: {e}"))
+    .map_err(|e| format!("Nao consegui criar o schema SQLite: {e}"))?;
+
+    // Safe migration: add title column if it doesn't exist yet.
+    let has_title: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('lt_sessions') WHERE name='title'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(false);
+
+    if !has_title {
+        conn.execute_batch("ALTER TABLE lt_sessions ADD COLUMN title TEXT;")
+            .map_err(|e| format!("Nao consegui adicionar coluna title: {e}"))?;
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +178,19 @@ pub fn finalize_live_session(session_id: i64, stopped_at: String) -> Result<(), 
     Ok(())
 }
 
+pub fn update_session_title(session_id: i64, title: &str) -> Result<(), String> {
+    let conn = open_db()?;
+    ensure_schema(&conn)?;
+
+    conn.execute(
+        "UPDATE lt_sessions SET title = ?2 WHERE id = ?1",
+        params![session_id, title],
+    )
+    .map_err(|e| format!("Nao consegui salvar o titulo da sessao: {e}"))?;
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
@@ -182,7 +209,8 @@ pub fn list_sessions() -> Result<Vec<SessionSummary>, String> {
                          ORDER BY seg.position ASC
                          LIMIT 1),
                         ''
-                    ) AS preview
+                    ) AS preview,
+                    s.title
              FROM lt_sessions s
              ORDER BY s.id DESC",
         )
@@ -198,6 +226,7 @@ pub fn list_sessions() -> Result<Vec<SessionSummary>, String> {
                 model: row.get(4)?,
                 segment_count: row.get(5)?,
                 preview: row.get(6)?,
+                title: row.get(7)?,
             })
         })
         .map_err(|e| format!("Nao consegui executar a query de sessoes: {e}"))?

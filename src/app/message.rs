@@ -55,6 +55,7 @@ pub enum Message {
     LiveSessionCreated(Result<i64, String>),
     LiveSessionSegmentsPersisted(Result<usize, String>),
     LiveSessionFinalized(Result<(), String>),
+    LiveSessionTitleGenerated(Result<(i64, String), String>),
     // Sessions data (loaded inside Home tab)
     SessionsLoaded(Result<Vec<SessionSummary>, String>),
     SessionsSearchChanged(String),

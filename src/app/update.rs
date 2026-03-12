@@ -8,6 +8,7 @@ use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
 use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db;
+use crate::modules::live_transcription::infrastructure::chatgpt_title;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::window as app_window;
@@ -870,6 +871,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             match result {
                 Ok(()) => {
+                    let finalized_session_id = state.live_session_db_id;
                     state.live_session_db_id = None;
                     state.live_session_stopped_at = None;
                     state.live_session_started_at = None;
@@ -884,6 +886,18 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         state.live_completed_segments.clear();
                     }
 
+                    // Kick off title generation via ChatGPT backend (OAuth)
+                    if let Some(session_id) = finalized_session_id {
+                        if state.has_openai_credentials {
+                            return Task::perform(
+                                async move {
+                                    chatgpt_title::generate_session_title(session_id)
+                                },
+                                Message::LiveSessionTitleGenerated,
+                            );
+                        }
+                    }
+
                     Task::none()
                 }
                 Err(err) => {
@@ -891,6 +905,27 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     Task::none()
                 }
             }
+        }
+
+
+        Message::LiveSessionTitleGenerated(result) => {
+            match result {
+                Ok((session_id, title)) => {
+                    // Update the title in our cached sessions list if present
+                    if let Some(session) = state
+                        .sessions_list
+                        .iter_mut()
+                        .find(|s| s.id == session_id)
+                    {
+                        session.title = Some(title.clone());
+                    }
+                    state.hint = format!("Titulo gerado: {title}");
+                }
+                Err(_err) => {
+                    // Title generation is best-effort; don't show an error to the user.
+                }
+            }
+            Task::none()
         }
 
 

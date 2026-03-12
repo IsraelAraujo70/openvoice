@@ -91,7 +91,13 @@ fn session_card<'a>(
     );
 
     let mut card_col = column![].spacing(3);
-    card_col = card_col.push(text(date_label).size(13).color(Color::WHITE));
+    // Show title if available, otherwise just the date
+    if let Some(title) = &session.title {
+        card_col = card_col.push(text(title.to_string()).size(13).color(Color::WHITE));
+        card_col = card_col.push(text(date_label).size(11).color(muted()));
+    } else {
+        card_col = card_col.push(text(date_label).size(13).color(Color::WHITE));
+    }
     card_col = card_col.push(
         text(format!("{lang_label} · {model_label} · {seg_label}"))
             .size(11)

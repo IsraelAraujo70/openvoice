@@ -200,7 +200,11 @@ fn recent_sessions(state: &Overlay) -> Element<'_, Message> {
         let date = format_iso_for_display(&session.started_at);
         let lang = session.language.as_deref().unwrap_or("?");
         let segs = session.segment_count;
-        let preview = if session.preview.len() > 80 {
+
+        // Prefer title over preview when available
+        let display_text = if let Some(title) = &session.title {
+            title.clone()
+        } else if session.preview.len() > 80 {
             format!("{}...", &session.preview[..80])
         } else {
             session.preview.clone()
@@ -218,7 +222,7 @@ fn recent_sessions(state: &Overlay) -> Element<'_, Message> {
                         .color(Color::from_rgba8(148, 163, 184, 0.55)),
                 ]
                 .align_y(Alignment::Center),
-                text(preview)
+                text(display_text)
                     .size(11)
                     .color(Color::from_rgba8(148, 163, 184, 0.65)),
             ]
