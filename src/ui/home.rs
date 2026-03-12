@@ -163,13 +163,6 @@ fn status_hints(state: &Overlay) -> Element<'_, Message> {
         ));
     }
 
-    if items.is_empty() {
-        items.push(status_pill(
-            "Pronto",
-            Color::from_rgba8(148, 163, 184, 0.60),
-        ));
-    }
-
     column(items).spacing(6).into()
 }
 

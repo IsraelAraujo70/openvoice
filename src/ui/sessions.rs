@@ -2,7 +2,9 @@ use crate::app::{Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::{
     format_iso_for_display, SessionSummary,
 };
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::{
+    button, column, container, rich_text, row, scrollable, span, text, text_input, Space,
+};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
@@ -62,7 +64,7 @@ fn sessions_list(state: &Overlay) -> Element<'_, Message> {
 
     for session in filtered {
         let is_selected = state.selected_session_id == Some(session.id);
-        col = col.push(session_card(state, session, is_selected));
+        col = col.push(session_card(state, session, is_selected, &query));
     }
 
     scrollable(col).height(Length::Fill).into()
@@ -72,6 +74,7 @@ fn session_card<'a>(
     state: &'a Overlay,
     session: &'a SessionSummary,
     is_selected: bool,
+    query: &str,
 ) -> Element<'a, Message> {
     let date_label = format_iso_for_display(&session.started_at);
     let stopped_label = session
@@ -87,17 +90,27 @@ fn session_card<'a>(
         if session.segment_count == 1 { "" } else { "s" }
     );
 
+    let mut card_col = column![].spacing(3);
+    card_col = card_col.push(text(date_label).size(13).color(Color::WHITE));
+    card_col = card_col.push(
+        text(format!("{lang_label} · {model_label} · {seg_label}"))
+            .size(11)
+            .color(muted()),
+    );
+    card_col = card_col.push(
+        text(format!("Finalizada: {stopped_label}"))
+            .size(11)
+            .color(muted()),
+    );
+
+    // When searching, show preview with highlighted match
+    if !query.is_empty() && !session.preview.is_empty() {
+        card_col =
+            card_col.push(container(highlighted_preview(&session.preview, query)).padding([4, 0]));
+    }
+
     let summary_row = row![
-        column![
-            text(date_label).size(13).color(Color::WHITE),
-            text(format!("{lang_label} · {model_label} · {seg_label}"))
-                .size(11)
-                .color(muted()),
-            text(format!("Finalizada: {stopped_label}"))
-                .size(11)
-                .color(muted()),
-        ]
-        .spacing(3),
+        card_col,
         Space::new().width(Length::Fill),
         expand_btn(session.id, is_selected),
     ]
@@ -116,6 +129,30 @@ fn session_card<'a>(
         .padding([12, 16])
         .style(move |_| card_style(is_selected))
         .into()
+}
+
+/// Build a rich_text element with the matching portion highlighted in cyan.
+fn highlighted_preview<'a>(preview: &str, query: &str) -> Element<'a, Message> {
+    let preview_lower = preview.to_lowercase();
+    let highlight = Color::from_rgb8(34, 211, 238); // cyan accent
+    let normal = Color::from_rgba(1.0, 1.0, 1.0, 0.50);
+
+    if let Some(pos) = preview_lower.find(query) {
+        let before = &preview[..pos];
+        let matched = &preview[pos..pos + query.len()];
+        let after = &preview[pos + query.len()..];
+        let mut spans: Vec<iced::widget::text::Span<'_>> = Vec::new();
+        if !before.is_empty() {
+            spans.push(span(before.to_string()).size(11).color(normal));
+        }
+        spans.push(span(matched.to_string()).size(11).color(highlight));
+        if !after.is_empty() {
+            spans.push(span(after.to_string()).size(11).color(normal));
+        }
+        rich_text(spans).into()
+    } else {
+        text(preview.to_string()).size(11).color(normal).into()
+    }
 }
 
 fn session_detail<'a>(state: &'a Overlay, _session: &'a SessionSummary) -> Element<'a, Message> {
