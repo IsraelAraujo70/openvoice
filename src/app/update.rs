@@ -1,5 +1,5 @@
 use crate::app::message::Message;
-use crate::app::state::{Overlay, OverlayPhase};
+use crate::app::state::{HomeTab, MainView, Overlay, OverlayPhase};
 use crate::modules::audio::infrastructure::microphone;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
@@ -53,11 +53,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
         Message::WindowCloseRequested(id) => {
             // Only quit if the main HUD window requests close.
-            // Secondary windows (subtitle, sessions) just close themselves.
+            // Secondary windows (subtitle) just close themselves.
             if state.main_window_id == Some(id) {
                 Task::done(Message::Quit)
-            } else if state.sessions_window_id == Some(id) {
-                Task::done(Message::CloseSessionsView)
             } else {
                 // subtitle has no decorations so this shouldn't fire,
                 // but handle gracefully anyway.
@@ -71,7 +69,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::StartDrag => state.main_window_id.map_or_else(Task::none, window::drag),
 
         Message::WindowMoved(position) => {
-            if state.settings_open {
+            if state.main_view == MainView::Home {
                 return Task::none();
             }
 
@@ -98,11 +96,13 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             keyboard::Event::KeyPressed {
                 key, physical_key, ..
             } => match key.as_ref() {
-                Key::Named(Named::Escape) if state.settings_open => {
-                    Task::done(Message::CloseSettingsView)
+                Key::Named(Named::Escape) if state.main_view == MainView::Home => {
+                    Task::done(Message::CloseHomeView)
                 }
                 Key::Named(Named::Escape) => Task::done(Message::Quit),
-                _ if matches!(key.to_latin(physical_key), Some('p')) => {
+                _ if matches!(key.to_latin(physical_key), Some('p'))
+                    && state.main_view == MainView::Hud =>
+                {
                     Task::done(Message::TogglePassthrough)
                 }
                 _ => Task::none(),
@@ -111,21 +111,22 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         },
 
         // ------------------------------------------------------------------ //
-        // Settings navigation
+        // Home navigation
         // ------------------------------------------------------------------ //
-        Message::OpenSettingsView => {
+        Message::OpenHomeView => {
             if state.is_recording() || state.is_processing() {
                 state.error = Some(String::from(
-                    "Finalize o ditado antes de abrir a view de settings.",
+                    "Finalize o ditado antes de abrir a Home.",
                 ));
                 return Task::none();
             }
 
-            state.settings_open = true;
+            state.main_view = MainView::Home;
+            state.home_tab = HomeTab::Home;
             state.error = None;
 
             state.main_window_id.map_or_else(Task::none, |window_id| {
-                let settings = app_window::settings_window_settings();
+                let settings = app_window::home_window_settings();
                 let position = match settings.position {
                     window::Position::Specific(point) => point,
                     _ => iced::Point::ORIGIN,
@@ -140,8 +141,8 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             })
         }
 
-        Message::CloseSettingsView => {
-            state.settings_open = false;
+        Message::CloseHomeView => {
+            state.main_view = MainView::Hud;
             state.error = None;
 
             state.main_window_id.map_or_else(Task::none, |window_id| {
@@ -164,6 +165,61 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     window::set_level(window_id, window::Level::AlwaysOnTop),
                 ])
             })
+        }
+
+        Message::SwitchHomeTab(tab) => {
+            let needs_open = state.main_view == MainView::Hud;
+            let reload_sessions = matches!(tab, HomeTab::Sessions);
+
+            if needs_open {
+                if state.is_recording() || state.is_processing() {
+                    state.error = Some(String::from(
+                        "Finalize o ditado antes de abrir a Home.",
+                    ));
+                    return Task::none();
+                }
+
+                state.main_view = MainView::Home;
+                state.home_tab = tab;
+                state.error = None;
+
+                let mut tasks = Vec::new();
+
+                if let Some(window_id) = state.main_window_id {
+                    let settings = app_window::home_window_settings();
+                    let position = match settings.position {
+                        window::Position::Specific(point) => point,
+                        _ => iced::Point::ORIGIN,
+                    };
+
+                    tasks.push(window::disable_mouse_passthrough(window_id));
+                    tasks.push(window::resize(window_id, settings.size));
+                    tasks.push(window::move_to(window_id, position));
+                    tasks.push(window::set_level(window_id, window::Level::Normal));
+                }
+
+                if reload_sessions {
+                    state.sessions_loading = true;
+                    tasks.push(Task::perform(
+                        async { db::list_sessions() },
+                        Message::SessionsLoaded,
+                    ));
+                }
+
+                Task::batch(tasks)
+            } else {
+                state.home_tab = tab;
+
+                if reload_sessions {
+                    state.sessions_loading = true;
+                    Task::perform(
+                        async { db::list_sessions() },
+                        Message::SessionsLoaded,
+                    )
+                } else {
+                    Task::none()
+                }
+            }
         }
 
         // ------------------------------------------------------------------ //
@@ -402,6 +458,13 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
+            // Auto-close Home → HUD before starting dictation
+            let mut morph_tasks = if state.main_view == MainView::Home {
+                morph_home_to_hud(state)
+            } else {
+                Vec::new()
+            };
+
             match microphone::start_default_recording() {
                 Ok(recorder) => {
                     let device_name = recorder
@@ -419,21 +482,27 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     if state.passthrough_enabled {
                         state.passthrough_enabled = false;
 
-                        return state.main_window_id.map_or_else(Task::none, |window_id| {
-                            Task::batch([
-                                window::disable_mouse_passthrough(window_id),
-                                window::set_level(window_id, window::Level::AlwaysOnTop),
-                            ])
-                        });
+                        if let Some(window_id) = state.main_window_id {
+                            morph_tasks.push(window::disable_mouse_passthrough(window_id));
+                            morph_tasks.push(window::set_level(window_id, window::Level::AlwaysOnTop));
+                        }
                     }
 
-                    Task::none()
+                    if morph_tasks.is_empty() {
+                        Task::none()
+                    } else {
+                        Task::batch(morph_tasks)
+                    }
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
                     state.hint = String::from("Nao consegui iniciar a captura do microfone.");
                     state.error = Some(error);
-                    Task::none()
+                    if morph_tasks.is_empty() {
+                        Task::none()
+                    } else {
+                        Task::batch(morph_tasks)
+                    }
                 }
             }
         }
@@ -512,6 +581,13 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
+            // Auto-close Home → HUD before starting realtime
+            let mut tasks: Vec<Task<Message>> = if state.main_view == MainView::Home {
+                morph_home_to_hud(state)
+            } else {
+                Vec::new()
+            };
+
             match live_transcription_application::start_live_transcription(&state.settings) {
                 Ok(session) => {
                     let receiver = session.receiver();
@@ -544,23 +620,27 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     let model = Some(state.settings.openai_realtime_model.clone())
                         .filter(|value| !value.trim().is_empty());
 
-                    Task::batch([
-                        open_subtitle.map(Message::SubtitleWindowOpened),
-                        Task::perform(
-                            async move { db::create_live_session(started_at, language, model) },
-                            Message::LiveSessionCreated,
-                        ),
-                        Task::perform(
-                            async move { live_transcription_application::poll_next_event(receiver) },
-                            Message::RealtimeEventReceived,
-                        ),
-                    ])
+                    tasks.push(open_subtitle.map(Message::SubtitleWindowOpened));
+                    tasks.push(Task::perform(
+                        async move { db::create_live_session(started_at, language, model) },
+                        Message::LiveSessionCreated,
+                    ));
+                    tasks.push(Task::perform(
+                        async move { live_transcription_application::poll_next_event(receiver) },
+                        Message::RealtimeEventReceived,
+                    ));
+
+                    Task::batch(tasks)
                 }
                 Err(error) => {
                     state.phase = OverlayPhase::Error;
                     state.hint = String::from("Nao consegui iniciar a transcription realtime.");
                     state.error = Some(error);
-                    Task::none()
+                    if tasks.is_empty() {
+                        Task::none()
+                    } else {
+                        Task::batch(tasks)
+                    }
                 }
             }
         }
@@ -798,46 +878,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
         }
 
-        // ------------------------------------------------------------------ //
-        // Sessions window
-        // ------------------------------------------------------------------ //
-        Message::OpenSessionsView => {
-            if state.sessions_window_id.is_some() {
-                // Already open — focus it
-                return Task::none();
-            }
-
-            state.sessions_loading = true;
-            state.sessions_error = None;
-
-            let sessions_settings = app_window::sessions_window_settings(state.primary_monitor);
-            let (_, open_sessions) = window::open(sessions_settings);
-
-            Task::batch([
-                open_sessions.map(Message::SessionsWindowOpened),
-                Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
-            ])
-        }
-
-        Message::SessionsWindowOpened(id) => {
-            state.sessions_window_id = Some(id);
-            window::set_level(id, window::Level::Normal)
-        }
-
-        Message::CloseSessionsView => {
-            state.sessions_list.clear();
-            state.sessions_error = None;
-            state.sessions_loading = false;
-            state.selected_session_id = None;
-            state.selected_session_segments.clear();
-            state.selected_session_loading = false;
-
-            if let Some(id) = state.sessions_window_id.take() {
-                window::close(id)
-            } else {
-                Task::none()
-            }
-        }
 
         Message::SessionsLoaded(result) => {
             state.sessions_loading = false;
@@ -899,6 +939,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         // Window behavior
         // ------------------------------------------------------------------ //
         Message::TogglePassthrough => {
+            if state.main_view == MainView::Home {
+                return Task::none();
+            }
+
             if !state.passthrough_enabled
                 && (state.is_recording() || state.is_processing() || state.is_live_transcribing())
             {
@@ -937,6 +981,31 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             iced::exit()
         }
     }
+}
+
+/// Morph the main window from Home (700x800 Normal) back to HUD (380x96 AlwaysOnTop).
+/// Returns window tasks. Caller should batch these with follow-up actions.
+fn morph_home_to_hud(state: &mut Overlay) -> Vec<Task<Message>> {
+    state.main_view = MainView::Hud;
+    state.error = None;
+
+    let Some(window_id) = state.main_window_id else {
+        return Vec::new();
+    };
+
+    let hud = app_window::hud_settings();
+    let default_position = match hud.position {
+        window::Position::Specific(point) => point,
+        _ => Point::ORIGIN,
+    };
+    let position = state.hud_position.unwrap_or(default_position);
+
+    vec![
+        window::disable_mouse_passthrough(window_id),
+        window::resize(window_id, hud.size),
+        window::move_to(window_id, position),
+        window::set_level(window_id, window::Level::AlwaysOnTop),
+    ]
 }
 
 fn push_live_delta(target: &mut String, delta: &str) {

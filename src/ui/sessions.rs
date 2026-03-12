@@ -1,18 +1,14 @@
 use crate::app::{Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::{
-    SessionSummary, format_iso_for_display,
+    format_iso_for_display, SessionSummary,
 };
-use iced::widget::{Space, button, column, container, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
-pub fn view(state: &Overlay) -> Element<'_, Message> {
-    let header = row![
-        text("Sessoes gravadas").size(16).color(Color::WHITE),
-        Space::new().width(Length::Fill),
-        close_btn(),
-    ]
-    .align_y(Alignment::Center)
-    .spacing(12);
+pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
+    let search_bar = text_input("Buscar sessoes...", "")
+        .padding([10, 14])
+        .size(13);
 
     let body: Element<'_, Message> = if state.sessions_loading {
         text("Carregando sessoes...").size(13).color(muted()).into()
@@ -30,18 +26,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         sessions_list(state)
     };
 
-    let content = column![header, body].spacing(20);
-
-    container(
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding([20, 24])
-            .style(|_| panel_style()),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    column![search_bar, body].spacing(16).into()
 }
 
 fn sessions_list(state: &Overlay) -> Element<'_, Message> {
@@ -153,20 +138,8 @@ fn session_detail<'a>(state: &'a Overlay, _session: &'a SessionSummary) -> Eleme
 // Small widget helpers
 // ---------------------------------------------------------------------------
 
-fn close_btn<'a>() -> Element<'a, Message> {
-    button(
-        text("✕")
-            .size(14)
-            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.6)),
-    )
-    .on_press(Message::CloseSessionsView)
-    .style(|_, _| ghost_btn_style())
-    .padding([4, 8])
-    .into()
-}
-
 fn expand_btn<'a>(session_id: i64, is_selected: bool) -> Element<'a, Message> {
-    let label = if is_selected { "▲" } else { "▼" };
+    let label = if is_selected { "\u{25B2}" } else { "\u{25BC}" };
     button(
         text(label)
             .size(12)
@@ -196,22 +169,6 @@ fn action_btn<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
 
 fn muted() -> Color {
     Color::from_rgba(1.0, 1.0, 1.0, 0.38)
-}
-
-fn panel_style() -> container::Style {
-    container::Style::default()
-        .background(Background::Color(Color::from_rgba(0.07, 0.07, 0.10, 0.96)))
-        .border(Border {
-            color: Color::from_rgba(1.0, 1.0, 1.0, 0.08),
-            width: 1.0,
-            radius: 16.0.into(),
-        })
-        .shadow(Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
-            offset: iced::Vector::new(0.0, 8.0),
-            blur_radius: 28.0,
-        })
-        .color(Color::WHITE)
 }
 
 fn card_style(selected: bool) -> container::Style {

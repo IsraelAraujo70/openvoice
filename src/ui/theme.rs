@@ -1,4 +1,4 @@
-use iced::{Color, Theme, theme};
+use iced::{theme, Color, Theme};
 
 pub fn app_theme(_state: &crate::app::Overlay) -> Theme {
     Theme::TokyoNightStorm

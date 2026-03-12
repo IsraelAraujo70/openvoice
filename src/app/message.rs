@@ -1,10 +1,12 @@
-use iced::{Point, Size, keyboard, window};
+use iced::{keyboard, window, Point, Size};
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
 use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::domain::AppSettings;
+
+use crate::app::state::HomeTab;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -17,8 +19,9 @@ pub enum Message {
     StartDrag,
     WindowMoved(Point),
     // Navigation
-    OpenSettingsView,
-    CloseSettingsView,
+    OpenHomeView,
+    CloseHomeView,
+    SwitchHomeTab(HomeTab),
     // Settings form
     SettingsApiKeyChanged(String),
     SettingsOpenAiRealtimeApiKeyChanged(String),
@@ -52,10 +55,7 @@ pub enum Message {
     LiveSessionCreated(Result<i64, String>),
     LiveSessionSegmentsPersisted(Result<usize, String>),
     LiveSessionFinalized(Result<(), String>),
-    // Sessions window
-    OpenSessionsView,
-    SessionsWindowOpened(window::Id),
-    CloseSessionsView,
+    // Sessions data (loaded inside Home tab)
     SessionsLoaded(Result<Vec<SessionSummary>, String>),
     SessionSelected(i64),
     SessionDetailLoaded(Result<Vec<String>, String>),

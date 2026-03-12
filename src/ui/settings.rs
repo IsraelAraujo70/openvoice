@@ -2,13 +2,12 @@ use crate::app::{Message, Overlay};
 use crate::modules::settings::domain::{
     SUPPORTED_OPENAI_REALTIME_LANGUAGES, SUPPORTED_OPENAI_REALTIME_PROFILES,
 };
-use crate::ui::components::chrome_button::{self, ButtonKind};
 use iced::widget::{
-    Space, button, column, container, pick_list, row, scrollable, text, text_input,
+    button, column, container, pick_list, row, scrollable, text, text_input, Space,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
-pub fn view(state: &Overlay) -> Element<'_, Message> {
+pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
     let save_settings = action_button(
         if state.is_saving_settings {
             "Saving..."
@@ -77,198 +76,162 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         .style(|_| card_style())
     });
 
-    let shell = container(
-        column![
-            row![
-                column![
-                    text("Settings").size(30),
-                    text("Configure providers once and keep the HUD focused on capture.")
-                        .size(14)
-                        .color(Color::from_rgba8(226, 232, 240, 0.72)),
+    let content = column![
+        container(
+            column![
+                section_title("OpenRouter"),
+                text(
+                    "OpenRouter e usado no fluxo de gravacao do microfone: grava, envia o audio final e copia a transcricao para o clipboard."
+                )
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                text_input(
+                    "OpenRouter API key",
+                    &state.settings_form.openrouter_api_key
+                )
+                .on_input(Message::SettingsApiKeyChanged)
+                .secure(true)
+                .padding([12, 14]),
+                text_input("Model", &state.settings_form.openrouter_model)
+                    .on_input(Message::SettingsModelChanged)
+                    .padding([12, 14]),
+                row![
+                    save_settings,
+                    state
+                        .settings_note
+                        .as_ref()
+                        .map(|note| {
+                            text(note)
+                                .size(12)
+                                .color(Color::from_rgba8(148, 163, 184, 0.88))
+                        })
+                        .unwrap_or_else(|| text("")),
                 ]
-                .spacing(4),
-                Space::new().width(Length::Fill),
-                chrome_button::view("✕", Some(Message::CloseSettingsView), ButtonKind::Ghost),
+                .spacing(12)
+                .align_y(Alignment::Center),
             ]
-            .width(Length::Fill)
-            .align_y(Alignment::Center),
-            container(
-                column![
-                    section_title("OpenRouter"),
-                    text(
-                        "OpenRouter e usado no fluxo de gravacao do microfone: grava, envia o audio final e copia a transcricao para o clipboard."
-                    )
-                    .size(12)
-                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
-                    text_input(
-                        "OpenRouter API key",
-                        &state.settings_form.openrouter_api_key
-                    )
-                    .on_input(Message::SettingsApiKeyChanged)
+            .spacing(14),
+        )
+        .padding(18)
+        .style(|_| card_style()),
+        container(
+            column![
+                section_title("OpenAI Realtime"),
+                text(
+                    "OpenAI Realtime e usado na transcricao ao vivo do audio do sistema. Aqui entram a API key da Platform e o modelo de transcricao."
+                )
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                text_input("OpenAI API key", &state.settings_form.openai_realtime_api_key)
+                    .on_input(Message::SettingsOpenAiRealtimeApiKeyChanged)
                     .secure(true)
                     .padding([12, 14]),
-                    text_input("Model", &state.settings_form.openrouter_model)
-                        .on_input(Message::SettingsModelChanged)
-                        .padding([12, 14]),
-                    row![
-                        save_settings,
-                        state
-                            .settings_note
-                            .as_ref()
-                            .map(|note| {
-                                text(note)
-                                    .size(12)
-                                    .color(Color::from_rgba8(148, 163, 184, 0.88))
-                            })
-                            .unwrap_or_else(|| text("")),
+                text_input("Transcription model", &state.settings_form.openai_realtime_model)
+                    .on_input(Message::SettingsOpenAiRealtimeModelChanged)
+                    .padding([12, 14]),
+                pick_list(
+                    SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS,
+                    selected_language_option(&state.settings_form.openai_realtime_language),
+                    |option| {
+                        Message::SettingsOpenAiRealtimeLanguageChanged(
+                            option.code().to_owned()
+                        )
+                    }
+                )
+                .placeholder("Language"),
+                pick_list(
+                    SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS,
+                    selected_profile_option(&state.settings_form.openai_realtime_profile),
+                    |option| {
+                        Message::SettingsOpenAiRealtimeProfileChanged(
+                            option.code().to_owned()
+                        )
+                    }
+                )
+                .placeholder("Realtime profile"),
+            ]
+            .spacing(14),
+        )
+        .padding(18)
+        .style(|_| card_style()),
+        container(
+            column![
+                section_title("OpenAI OAuth"),
+                openai_auth_action,
+                text(
+                    "Mantenha o login ChatGPT aqui para futuros fluxos que vao escrever, sincronizar ou usar sessao OAuth. Realtime nao depende mais desta sessao."
+                )
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                manual_callback_block
+                    .map(Element::from)
+                    .unwrap_or_else(|| Space::new().height(0).into()),
+            ]
+            .spacing(14),
+        )
+        .padding(18)
+        .style(|_| card_style()),
+        container(
+            column![
+                section_title("Runtime"),
+                status_row("Clipboard", "microphone transcript copied after processing"),
+                status_row("Storage", "settings in ~/.config/openvoice; system capture stays available for a future feature"),
+                status_row("Audio", "dictation uses microphone only in the current HUD flow"),
+                status_row(
+                    "Realtime auth",
+                    if state.settings.has_openai_realtime_api_key() {
+                        "configured via API key"
+                    } else {
+                        "missing OpenAI API key"
+                    },
+                ),
+                status_row(
+                    "ChatGPT OAuth",
+                    if state.has_openai_credentials {
+                        "connected"
+                    } else {
+                        "not signed in"
+                    },
+                ),
+                status_row(
+                    "OAuth account",
+                    state.openai_account_label.as_deref().unwrap_or("unknown"),
+                ),
+            ]
+            .spacing(12),
+        )
+        .padding(18)
+        .style(|_| card_style()),
+        state
+            .error
+            .as_ref()
+            .map(|error| {
+                container(
+                    column![
+                        text("Issue")
+                            .size(13)
+                            .color(Color::from_rgb8(251, 146, 60)),
+                        text(error)
+                            .size(16)
+                            .color(Color::from_rgb8(255, 207, 164)),
                     ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-                ]
-                .spacing(14),
-            )
-            .padding(18)
-            .style(|_| card_style()),
-            container(
-                column![
-                    section_title("OpenAI Realtime"),
-                    text(
-                        "OpenAI Realtime e usado na transcricao ao vivo do audio do sistema. Aqui entram a API key da Platform e o modelo de transcricao."
-                    )
-                    .size(12)
-                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
-                    text_input("OpenAI API key", &state.settings_form.openai_realtime_api_key)
-                        .on_input(Message::SettingsOpenAiRealtimeApiKeyChanged)
-                        .secure(true)
-                        .padding([12, 14]),
-                    text_input("Transcription model", &state.settings_form.openai_realtime_model)
-                        .on_input(Message::SettingsOpenAiRealtimeModelChanged)
-                        .padding([12, 14]),
-                    pick_list(
-                        SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS,
-                        selected_language_option(&state.settings_form.openai_realtime_language),
-                        |option| {
-                            Message::SettingsOpenAiRealtimeLanguageChanged(
-                                option.code().to_owned()
-                            )
-                        }
-                    )
-                    .placeholder("Language"),
-                    pick_list(
-                        SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS,
-                        selected_profile_option(&state.settings_form.openai_realtime_profile),
-                        |option| {
-                            Message::SettingsOpenAiRealtimeProfileChanged(
-                                option.code().to_owned()
-                            )
-                        }
-                    )
-                    .placeholder("Realtime profile"),
-                ]
-                .spacing(14),
-            )
-            .padding(18)
-            .style(|_| card_style()),
-            container(
-                column![
-                    section_title("OpenAI OAuth"),
-                    openai_auth_action,
-                    text(
-                        "Mantenha o login ChatGPT aqui para futuros fluxos que vao escrever, sincronizar ou usar sessao OAuth. Realtime nao depende mais desta sessao."
-                    )
-                    .size(12)
-                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
-                    manual_callback_block
-                        .map(Element::from)
-                        .unwrap_or_else(|| Space::new().height(0).into()),
-                ]
-                .spacing(14),
-            )
-            .padding(18)
-            .style(|_| card_style()),
-            container(
-                column![
-                    section_title("Runtime"),
-                    status_row("Clipboard", "microphone transcript copied after processing"),
-                    status_row("Storage", "settings in ~/.config/openvoice; system capture stays available for a future feature"),
-                    status_row("Audio", "dictation uses microphone only in the current HUD flow"),
-                    status_row(
-                        "Realtime auth",
-                        if state.settings.has_openai_realtime_api_key() {
-                            "configured via API key"
-                        } else {
-                            "missing OpenAI API key"
-                        },
-                    ),
-                    status_row(
-                        "ChatGPT OAuth",
-                        if state.has_openai_credentials {
-                            "connected"
-                        } else {
-                            "not signed in"
-                        },
-                    ),
-                    status_row(
-                        "OAuth account",
-                        state.openai_account_label.as_deref().unwrap_or("unknown"),
-                    ),
-                ]
-                .spacing(12),
-            )
-            .padding(18)
-            .style(|_| card_style()),
-            state
-                .error
-                .as_ref()
-                .map(|error| {
-                    container(
-                        column![
-                            text("Issue")
-                                .size(13)
-                                .color(Color::from_rgb8(251, 146, 60)),
-                            text(error)
-                                .size(16)
-                                .color(Color::from_rgb8(255, 207, 164)),
-                        ]
-                        .spacing(8),
-                    )
-                    .padding(18)
-                    .style(|_| error_style())
-                })
-                .unwrap_or_else(|| {
-                    container(
-                        text("This panel is generated by OpenVoice. Validate OpenRouter and OpenAI realtime before relying on it in production.")
-                            .size(12)
-                            .color(Color::from_rgba8(226, 232, 240, 0.66)),
-                    )
-                    .padding([0, 4])
-                }),
-        ]
-        .spacing(18),
-    )
-    .width(Length::Fill)
-    .padding(20)
-    .style(|_| {
-        container::Style::default()
-            .background(Background::Color(Color::from_rgba8(4, 8, 14, 0.96)))
-            .border(Border {
-                color: Color::from_rgba8(94, 234, 212, 0.16),
-                width: 1.0,
-                radius: 24.0.into(),
+                    .spacing(8),
+                )
+                .padding(18)
+                .style(|_| error_style())
             })
-            .shadow(Shadow {
-                color: Color::from_rgba8(0, 0, 0, 0.34),
-                offset: iced::Vector::new(0.0, 24.0),
-                blur_radius: 42.0,
-            })
-            .color(Color::from_rgb8(248, 250, 252))
-    });
+            .unwrap_or_else(|| {
+                container(
+                    text("This panel is generated by OpenVoice. Validate OpenRouter and OpenAI realtime before relying on it in production.")
+                        .size(12)
+                        .color(Color::from_rgba8(226, 232, 240, 0.66)),
+                )
+                .padding([0, 4])
+            }),
+    ]
+    .spacing(18);
 
-    container(scrollable(shell))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding(12)
-        .into()
+    scrollable(content).height(Length::Fill).into()
 }
 
 fn section_title(label: &'static str) -> Element<'static, Message> {

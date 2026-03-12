@@ -1,6 +1,6 @@
 use crate::app::Message;
 use iced::widget::{container, mouse_area, text};
-use iced::{Color, Element, Length, mouse};
+use iced::{mouse, Color, Element, Length};
 
 /// A subtle drag handle that initiates window drag on press.
 /// Uses vertical ellipsis "⋮" as a grip icon at low opacity.

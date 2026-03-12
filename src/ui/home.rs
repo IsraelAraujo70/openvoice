@@ -1,0 +1,311 @@
+use crate::app::{HomeTab, Message, Overlay};
+use crate::ui::{sessions, settings};
+use iced::widget::{button, column, container, row, text, Space};
+use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
+
+pub fn view(state: &Overlay) -> Element<'_, Message> {
+    let header = row![
+        column![
+            text("OpenVoice").size(26).color(Color::WHITE),
+            text("Copiloto pessoal Linux-native")
+                .size(13)
+                .color(Color::from_rgba8(226, 232, 240, 0.60)),
+        ]
+        .spacing(2),
+        Space::new().width(Length::Fill),
+        close_btn(),
+    ]
+    .width(Length::Fill)
+    .align_y(Alignment::Center);
+
+    let tabs = tab_bar(state.home_tab);
+
+    let content: Element<'_, Message> = match state.home_tab {
+        HomeTab::Home => home_content(state),
+        HomeTab::Sessions => sessions::tab_content(state),
+        HomeTab::Settings => settings::tab_content(state),
+    };
+
+    let shell = container(column![header, tabs, content].spacing(18))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding([24, 28])
+        .style(|_| shell_style());
+
+    container(shell)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(12)
+        .into()
+}
+
+fn home_content(state: &Overlay) -> Element<'_, Message> {
+    let listen_action = if state.is_live_transcribing() {
+        Some(Message::StopRealtimeTranscription)
+    } else if state.can_start_realtime_transcription() {
+        Some(Message::StartRealtimeTranscription)
+    } else {
+        None
+    };
+
+    let dictation_action = if state.is_dictation_recording() {
+        Some(Message::StopDictation)
+    } else if state.can_start_dictation() {
+        Some(Message::StartDictation)
+    } else {
+        None
+    };
+
+    let listen_label = if state.is_live_transcribing() {
+        "Parar Escuta"
+    } else {
+        "Ouvir Desktop"
+    };
+
+    let dictation_label = if state.is_dictation_recording() {
+        "Parar Ditado"
+    } else {
+        "Ditar"
+    };
+
+    let cards = column![
+        action_card(
+            listen_label,
+            "Transcricao realtime do audio do sistema",
+            "Ctrl+Shift+L",
+            listen_action,
+            false,
+        ),
+        action_card(
+            dictation_label,
+            "Gravar microfone e transcrever via OpenRouter",
+            "Ctrl+Shift+D",
+            dictation_action,
+            false,
+        ),
+        action_card(
+            "Perguntar Algo",
+            "Chat contextual com LLM",
+            "em breve",
+            None,
+            true,
+        ),
+    ]
+    .spacing(12);
+
+    let mut content = column![cards].spacing(16);
+
+    if let Some(err) = &state.error {
+        content = content.push(
+            container(
+                column![
+                    text("Issue").size(13).color(Color::from_rgb8(251, 146, 60)),
+                    text(err).size(14).color(Color::from_rgb8(255, 207, 164)),
+                ]
+                .spacing(6),
+            )
+            .padding(14)
+            .style(|_| error_card_style()),
+        );
+    }
+
+    content.into()
+}
+
+fn action_card<'a>(
+    title: &'a str,
+    description: &'a str,
+    badge: &'a str,
+    on_press: Option<Message>,
+    is_coming_soon: bool,
+) -> Element<'a, Message> {
+    let badge_el: Element<'a, Message> = if is_coming_soon {
+        container(
+            text(badge)
+                .size(10)
+                .color(Color::from_rgba8(148, 163, 184, 0.7)),
+        )
+        .padding([3, 8])
+        .style(|_| badge_soon_style())
+        .into()
+    } else {
+        container(
+            text(badge)
+                .size(10)
+                .color(Color::from_rgba8(34, 211, 238, 0.85)),
+        )
+        .padding([3, 8])
+        .style(|_| badge_shortcut_style())
+        .into()
+    };
+
+    let card_content = row![
+        column![
+            text(title).size(15).color(if is_coming_soon {
+                Color::from_rgba8(226, 232, 240, 0.4)
+            } else {
+                Color::WHITE
+            }),
+            text(description).size(12).color(if is_coming_soon {
+                Color::from_rgba8(148, 163, 184, 0.35)
+            } else {
+                Color::from_rgba8(148, 163, 184, 0.80)
+            }),
+        ]
+        .spacing(4),
+        Space::new().width(Length::Fill),
+        badge_el,
+    ]
+    .align_y(Alignment::Center)
+    .spacing(12);
+
+    let btn = button(
+        container(card_content)
+            .width(Length::Fill)
+            .padding([16, 20]),
+    )
+    .width(Length::Fill)
+    .on_press_maybe(if is_coming_soon { None } else { on_press })
+    .style(move |_, status| action_card_btn_style(is_coming_soon, status));
+
+    btn.into()
+}
+
+fn tab_bar(active: HomeTab) -> Element<'static, Message> {
+    row![
+        tab_button("Inicio", HomeTab::Home, active),
+        tab_button("Sessoes", HomeTab::Sessions, active),
+        tab_button("Configuracoes", HomeTab::Settings, active),
+    ]
+    .spacing(4)
+    .into()
+}
+
+fn tab_button(label: &'static str, tab: HomeTab, active: HomeTab) -> Element<'static, Message> {
+    let is_active = tab == active;
+
+    button(text(label).size(13).color(if is_active {
+        Color::WHITE
+    } else {
+        Color::from_rgba8(148, 163, 184, 0.65)
+    }))
+    .on_press(Message::SwitchHomeTab(tab))
+    .padding([8, 16])
+    .style(move |_, _| tab_btn_style(is_active))
+    .into()
+}
+
+fn close_btn<'a>() -> Element<'a, Message> {
+    button(
+        text("\u{2715}")
+            .size(14)
+            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.6)),
+    )
+    .on_press(Message::CloseHomeView)
+    .style(|_, _| ghost_btn_style())
+    .padding([4, 8])
+    .into()
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+fn shell_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(4, 8, 14, 0.96)))
+        .border(Border {
+            color: Color::from_rgba8(94, 234, 212, 0.16),
+            width: 1.0,
+            radius: 24.0.into(),
+        })
+        .shadow(Shadow {
+            color: Color::from_rgba8(0, 0, 0, 0.34),
+            offset: iced::Vector::new(0.0, 24.0),
+            blur_radius: 42.0,
+        })
+        .color(Color::from_rgb8(248, 250, 252))
+}
+
+fn tab_btn_style(is_active: bool) -> button::Style {
+    button::Style {
+        background: if is_active {
+            Some(Background::Color(Color::from_rgba8(34, 211, 238, 0.12)))
+        } else {
+            None
+        },
+        border: Border {
+            color: if is_active {
+                Color::from_rgba8(34, 211, 238, 0.24)
+            } else {
+                Color::TRANSPARENT
+            },
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        shadow: Shadow::default(),
+        text_color: Color::WHITE,
+        snap: false,
+    }
+}
+
+fn action_card_btn_style(is_disabled: bool, status: button::Status) -> button::Style {
+    let (bg_alpha, border_alpha) = match (is_disabled, status) {
+        (true, _) => (0.03, 0.06),
+        (_, button::Status::Hovered) => (0.12, 0.18),
+        _ => (0.06, 0.10),
+    };
+
+    button::Style {
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, bg_alpha))),
+        border: Border {
+            color: Color::from_rgba(1.0, 1.0, 1.0, border_alpha),
+            width: 1.0,
+            radius: 14.0.into(),
+        },
+        shadow: Shadow::default(),
+        text_color: Color::WHITE,
+        snap: false,
+    }
+}
+
+fn badge_shortcut_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(34, 211, 238, 0.10)))
+        .border(Border {
+            color: Color::from_rgba8(34, 211, 238, 0.20),
+            width: 1.0,
+            radius: 6.0.into(),
+        })
+}
+
+fn badge_soon_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(148, 163, 184, 0.08)))
+        .border(Border {
+            color: Color::from_rgba8(148, 163, 184, 0.14),
+            width: 1.0,
+            radius: 6.0.into(),
+        })
+}
+
+fn error_card_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(120, 18, 24, 0.28)))
+        .border(Border {
+            color: Color::from_rgba8(248, 113, 113, 0.24),
+            width: 1.0,
+            radius: 14.0.into(),
+        })
+        .color(Color::from_rgb8(255, 207, 164))
+}
+
+fn ghost_btn_style() -> button::Style {
+    button::Style {
+        background: None,
+        border: Border::default(),
+        shadow: Shadow::default(),
+        text_color: Color::WHITE,
+        snap: false,
+    }
+}

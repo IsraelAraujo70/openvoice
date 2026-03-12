@@ -8,17 +8,17 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::window as platform_window;
 use crate::platform::window::MonitorGeometry;
-use iced::{Point, Task, window};
+use iced::{window, Point, Task};
 
 pub struct Overlay {
     // Window IDs
     pub main_window_id: Option<window::Id>,
     pub subtitle_window_id: Option<window::Id>,
-    pub sessions_window_id: Option<window::Id>,
 
     // HUD state
     pub passthrough_enabled: bool,
-    pub settings_open: bool,
+    pub main_view: MainView,
+    pub home_tab: HomeTab,
     pub primary_monitor: Option<MonitorGeometry>,
     pub hud_position: Option<Point>,
     pub phase: OverlayPhase,
@@ -112,6 +112,19 @@ pub enum OverlayPhase {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainView {
+    Hud,
+    Home,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeTab {
+    Home,
+    Sessions,
+    Settings,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct OverlayConfig {
     pub start_with_passthrough: bool,
@@ -147,9 +160,9 @@ pub fn boot() -> (Overlay, Task<Message>) {
     let state = Overlay {
         main_window_id: None,
         subtitle_window_id: None,
-        sessions_window_id: None,
         passthrough_enabled: config.start_with_passthrough,
-        settings_open: false,
+        main_view: MainView::Hud,
+        home_tab: HomeTab::Home,
         primary_monitor,
         hud_position: None,
         phase: OverlayPhase::Idle,
