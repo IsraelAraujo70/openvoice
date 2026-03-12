@@ -889,13 +889,18 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     // Kick off title generation via ChatGPT backend (OAuth)
                     if let Some(session_id) = finalized_session_id {
                         if state.has_openai_credentials {
+                            eprintln!("[openvoice][title] dispatching title generation for session_id={session_id}");
                             return Task::perform(
                                 async move {
                                     chatgpt_title::generate_session_title(session_id)
                                 },
                                 Message::LiveSessionTitleGenerated,
                             );
+                        } else {
+                            eprintln!("[openvoice][title] skipped: no OAuth credentials (has_openai_credentials=false)");
                         }
+                    } else {
+                        eprintln!("[openvoice][title] skipped: finalized_session_id was None");
                     }
 
                     Task::none()
@@ -911,6 +916,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::LiveSessionTitleGenerated(result) => {
             match result {
                 Ok((session_id, title)) => {
+                    eprintln!("[openvoice][title] title generated for session {session_id}: {title}");
                     // Update the title in our cached sessions list if present
                     if let Some(session) = state
                         .sessions_list
@@ -921,10 +927,28 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     }
                     state.hint = format!("Titulo gerado: {title}");
                 }
-                Err(_err) => {
-                    // Title generation is best-effort; don't show an error to the user.
+                Err(err) => {
+                    eprintln!("[openvoice][title] title generation failed: {err}");
+                    // Title generation is best-effort; don't block on errors.
                 }
             }
+
+            // Chain: generate title for the next session without one
+            if state.has_openai_credentials {
+                if let Some(session) = state
+                    .sessions_list
+                    .iter()
+                    .find(|s| s.title.is_none() && s.segment_count > 0)
+                {
+                    let session_id = session.id;
+                    eprintln!("[openvoice][title] chaining title gen for session_id={session_id}");
+                    return Task::perform(
+                        async move { chatgpt_title::generate_session_title(session_id) },
+                        Message::LiveSessionTitleGenerated,
+                    );
+                }
+            }
+
             Task::none()
         }
 
@@ -940,6 +964,23 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     state.sessions_error = Some(err);
                 }
             }
+
+            // Retroactive: generate title for the first session without one
+            if state.has_openai_credentials {
+                if let Some(session) = state
+                    .sessions_list
+                    .iter()
+                    .find(|s| s.title.is_none() && s.segment_count > 0)
+                {
+                    let session_id = session.id;
+                    eprintln!("[openvoice][title] retroactive title gen for session_id={session_id}");
+                    return Task::perform(
+                        async move { chatgpt_title::generate_session_title(session_id) },
+                        Message::LiveSessionTitleGenerated,
+                    );
+                }
+            }
+
             Task::none()
         }
 

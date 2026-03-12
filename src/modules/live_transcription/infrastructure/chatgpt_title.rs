@@ -56,12 +56,23 @@ struct ResponsesError {
 /// This is a blocking call meant to run inside `Task::perform`.
 /// Returns `(session_id, title)` on success.
 pub fn generate_session_title(session_id: i64) -> Result<(i64, String), String> {
-    let session = auth_application::load_or_refresh_session()?;
+    eprintln!("[openvoice][title] generating title for session_id={session_id}");
+
+    let session = auth_application::load_or_refresh_session().map_err(|e| {
+        eprintln!("[openvoice][title] auth failed: {e}");
+        e
+    })?;
 
     let segments = db::get_session_segments(session_id)?;
     if segments.is_empty() {
+        eprintln!("[openvoice][title] session {session_id} has no segments, skipping");
         return Err(String::from("Sessao sem segmentos para gerar titulo."));
     }
+
+    eprintln!(
+        "[openvoice][title] session {session_id} has {} segments, building transcript",
+        segments.len()
+    );
 
     // Build the transcript text (limit to ~4000 chars to keep the request small)
     let transcript = build_truncated_transcript(&segments, 4000);
@@ -75,6 +86,7 @@ pub fn generate_session_title(session_id: i64) -> Result<(i64, String), String> 
     // Persist the title to DB
     db::update_session_title(session_id, &title)?;
 
+    eprintln!("[openvoice][title] session {session_id} title saved: {title}");
     Ok((session_id, title))
 }
 
@@ -130,11 +142,13 @@ fn call_chatgpt_backend(
         request = request.header("ChatGPT-Account-Id", acct);
     }
 
-    let response = request
-        .send()
-        .map_err(|e| format!("Erro ao chamar ChatGPT backend: {e}"))?;
+    let response = request.send().map_err(|e| {
+        eprintln!("[openvoice][title] HTTP request failed: {e}");
+        format!("Erro ao chamar ChatGPT backend: {e}")
+    })?;
 
     let status = response.status();
+    eprintln!("[openvoice][title] ChatGPT backend response status: {status}");
     if !status.is_success() {
         let body_text = response.text().unwrap_or_default();
         return Err(format!(
