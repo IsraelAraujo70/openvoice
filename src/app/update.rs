@@ -889,6 +889,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     // Kick off title generation via ChatGPT backend (OAuth)
                     if let Some(session_id) = finalized_session_id {
                         if state.has_openai_credentials {
+                            state.title_gen_failed_ids.insert(session_id);
                             eprintln!("[openvoice][title] dispatching title generation for session_id={session_id}");
                             return Task::perform(
                                 async move {
@@ -925,22 +926,33 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     {
                         session.title = Some(title.clone());
                     }
+                    // Clear from failed set on success (in case it was retried)
+                    state.title_gen_failed_ids.remove(&session_id);
                     state.hint = format!("Titulo gerado: {title}");
                 }
                 Err(err) => {
                     eprintln!("[openvoice][title] title generation failed: {err}");
                     // Title generation is best-effort; don't block on errors.
+                    // NOTE: We cannot extract session_id from the error string alone,
+                    // so the circuit breaker is applied before dispatching (see below).
                 }
             }
 
-            // Chain: generate title for the next session without one
+            // Chain: generate title for the next session without one,
+            // skipping sessions that already failed.
             if state.has_openai_credentials {
                 if let Some(session) = state
                     .sessions_list
                     .iter()
-                    .find(|s| s.title.is_none() && s.segment_count > 0)
+                    .find(|s| {
+                        s.title.is_none()
+                            && s.segment_count > 0
+                            && !state.title_gen_failed_ids.contains(&s.id)
+                    })
                 {
                     let session_id = session.id;
+                    // Mark as attempted so we don't retry on failure
+                    state.title_gen_failed_ids.insert(session_id);
                     eprintln!("[openvoice][title] chaining title gen for session_id={session_id}");
                     return Task::perform(
                         async move { chatgpt_title::generate_session_title(session_id) },
@@ -967,12 +979,17 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             // Retroactive: generate title for the first session without one
             if state.has_openai_credentials {
+                // Clear the failed set when sessions are freshly loaded
+                // (new load = new opportunity to try again)
+                state.title_gen_failed_ids.clear();
+
                 if let Some(session) = state
                     .sessions_list
                     .iter()
                     .find(|s| s.title.is_none() && s.segment_count > 0)
                 {
                     let session_id = session.id;
+                    state.title_gen_failed_ids.insert(session_id);
                     eprintln!("[openvoice][title] retroactive title gen for session_id={session_id}");
                     return Task::perform(
                         async move { chatgpt_title::generate_session_title(session_id) },

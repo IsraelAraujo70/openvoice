@@ -9,6 +9,7 @@ use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::window as platform_window;
 use crate::platform::window::MonitorGeometry;
 use iced::{window, Point, Task};
+use std::collections::HashSet;
 
 pub struct Overlay {
     // Window IDs
@@ -64,6 +65,9 @@ pub struct Overlay {
     pub selected_session_id: Option<i64>,
     pub selected_session_segments: Vec<String>,
     pub selected_session_loading: bool,
+
+    // Title generation circuit breaker: session IDs where generation already failed
+    pub title_gen_failed_ids: HashSet<i64>,
 }
 
 impl Overlay {
@@ -203,6 +207,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
         selected_session_id: None,
         selected_session_segments: Vec::new(),
         selected_session_loading: false,
+        title_gen_failed_ids: HashSet::new(),
     };
 
     // With iced::daemon, we must open the initial window manually.
