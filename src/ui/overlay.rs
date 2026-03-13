@@ -2,7 +2,7 @@ use crate::app::{HomeTab, Message, Overlay, OverlayPhase};
 use crate::ui::components::chrome_button::{self, ButtonKind};
 use crate::ui::components::drag_handle;
 use crate::ui::components::status_indicator;
-use iced::widget::{column, container, row, text, Space};
+use iced::widget::{Space, column, container, row, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -44,23 +44,25 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         Color::from_rgba(1.0, 1.0, 1.0, 0.28)
     };
 
-    let mut content = column![row![
-        drag_handle::view(),
-        status_indicator::view(status_label, accent),
-        Space::new().width(Length::Fill),
-        chrome_button::view("CC", realtime_action, ButtonKind::Caption(accent)),
-        chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
-        chrome_button::view(
-            "≡",
-            Some(Message::SwitchHomeTab(HomeTab::Sessions)),
-            ButtonKind::Ghost
-        ),
-        chrome_button::view("⌂", Some(Message::OpenHomeView), ButtonKind::Ghost),
-        chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
+    let mut content = column![
+        row![
+            drag_handle::view(),
+            status_indicator::view(status_label, accent),
+            Space::new().width(Length::Fill),
+            chrome_button::view("CC", realtime_action, ButtonKind::Caption(accent)),
+            chrome_button::view("", mic_action, ButtonKind::Mic(accent)),
+            chrome_button::view(
+                "≡",
+                Some(Message::SwitchHomeTab(HomeTab::Sessions)),
+                ButtonKind::Ghost
+            ),
+            chrome_button::view("⌂", Some(Message::OpenHomeView), ButtonKind::Ghost),
+            chrome_button::view("✕", Some(Message::Quit), ButtonKind::Ghost),
+        ]
+        .spacing(8)
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
     ]
-    .spacing(8)
-    .width(Length::Fill)
-    .align_y(Alignment::Center)]
     .spacing(8);
 
     if has_info {

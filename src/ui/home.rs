@@ -1,7 +1,7 @@
 use crate::app::{HomeTab, Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::format_iso_for_display;
 use crate::ui::{sessions, settings};
-use iced::widget::{button, column, container, row, scrollable, text, Space};
+use iced::widget::{Space, button, column, container, row, scrollable, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {

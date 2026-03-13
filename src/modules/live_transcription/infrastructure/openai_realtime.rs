@@ -3,7 +3,7 @@ use crate::modules::live_transcription::domain::{
     LiveTranscriptionConfig, NoiseReductionMode, RuntimeEvent, TurnDetectionMode,
 };
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{connect, Message, WebSocket};
+use tungstenite::{Message, WebSocket, connect};
 
 pub type SharedReceiver = Arc<Mutex<Receiver<RuntimeEvent>>>;
 

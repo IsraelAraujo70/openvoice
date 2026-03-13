@@ -1,4 +1,4 @@
-use iced::{window, Point, Size};
+use iced::{Point, Size, window};
 use std::process::Command;
 
 const HUD_WIDTH: f32 = 380.0;
@@ -176,7 +176,7 @@ pub fn clamp_hud_to_monitor(position: Point, monitor: MonitorGeometry) -> Point 
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_geometry_token, parse_xrandr_listactivemonitors, Point, Size};
+    use super::{Point, Size, parse_geometry_token, parse_xrandr_listactivemonitors};
 
     #[test]
     fn parses_listactivemonitors_primary_output() {

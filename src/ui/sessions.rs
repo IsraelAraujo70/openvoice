@@ -1,9 +1,9 @@
 use crate::app::{Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::{
-    format_iso_for_display, SessionSummary,
+    SessionSummary, format_iso_for_display,
 };
 use iced::widget::{
-    button, column, container, rich_text, row, scrollable, span, text, text_input, Space,
+    Space, button, column, container, rich_text, row, scrollable, span, text, text_input,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 

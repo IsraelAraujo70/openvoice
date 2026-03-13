@@ -1,12 +1,20 @@
 #![allow(dead_code)]
 
+use crate::modules::auth::application as auth_application;
 use crate::modules::live_transcription::domain::{
     LiveTranscriptionConfig, RuntimeEvent, TurnDetectionMode,
 };
+use crate::modules::live_transcription::infrastructure::db;
 use crate::modules::live_transcription::infrastructure::openai_realtime::{
     self, SessionHandle, SharedReceiver,
 };
 use crate::modules::settings::domain::AppSettings;
+use crate::support::openai::codex_responses::{CodexAuth, CodexResponsesClient, CodexTextRequest};
+
+const TITLE_MODEL: &str = "gpt-5.1-codex-mini";
+const TITLE_MAX_CHARS: usize = 80;
+const TITLE_TRANSCRIPT_MAX_CHARS: usize = 4000;
+const TITLE_INSTRUCTIONS: &str = "Summarize this transcription in 1 line (max 80 chars), in the same language as the content. Return ONLY the summary line, nothing else.";
 
 const CAPTION_VAD_THRESHOLD: f32 = 0.47;
 const CAPTION_PREFIX_PADDING_MS: u32 = 320;
@@ -70,6 +78,57 @@ pub fn start_live_transcription(settings: &AppSettings) -> Result<ActiveLiveTran
 
 pub fn poll_next_event(receiver: SharedReceiver) -> Option<RuntimeEvent> {
     receiver.lock().ok()?.recv().ok()
+}
+
+pub fn generate_session_title(session_id: i64) -> Result<(i64, String), String> {
+    eprintln!("[openvoice][title] generating title for session_id={session_id}");
+
+    let session = auth_application::load_or_refresh_session().map_err(|error| {
+        eprintln!("[openvoice][title] auth failed: {error}");
+        error
+    })?;
+
+    let account_id = session
+        .account_id
+        .as_deref()
+        .ok_or_else(|| String::from("Sem account_id no token OAuth. Faca login novamente."))?;
+
+    let segments = db::get_session_segments(session_id)?;
+    if segments.is_empty() {
+        eprintln!("[openvoice][title] session {session_id} has no segments, skipping");
+        return Err(String::from("Sessao sem segmentos para gerar titulo."));
+    }
+
+    eprintln!(
+        "[openvoice][title] session {session_id} has {} segments, building transcript",
+        segments.len()
+    );
+
+    let transcript = build_truncated_transcript(&segments, TITLE_TRANSCRIPT_MAX_CHARS);
+    let client = CodexResponsesClient::new()?;
+    let raw_title = client.generate_text(
+        CodexAuth {
+            bearer_token: session.bearer_token(),
+            account_id,
+        },
+        CodexTextRequest {
+            model: TITLE_MODEL,
+            instructions: TITLE_INSTRUCTIONS,
+            input: &transcript,
+        },
+    )?;
+    let title = normalize_single_line(&raw_title, TITLE_MAX_CHARS);
+
+    if title.is_empty() {
+        return Err(String::from(
+            "Codex Responses retornou resposta vazia para o titulo.",
+        ));
+    }
+
+    db::update_session_title(session_id, &title)?;
+
+    eprintln!("[openvoice][title] session {session_id} title saved: {title}");
+    Ok((session_id, title))
 }
 
 fn realtime_profile_from_settings(settings: &AppSettings) -> RealtimeProfile {
@@ -141,9 +200,58 @@ fn build_realtime_prompt(profile: RealtimeProfile, language: Option<&str>) -> Op
     ))
 }
 
+fn build_truncated_transcript(segments: &[String], max_chars: usize) -> String {
+    let mut result = String::new();
+    let mut used_chars = 0;
+
+    for segment in segments {
+        if used_chars >= max_chars {
+            break;
+        }
+
+        let needs_separator = !result.is_empty();
+        let separator_chars = usize::from(needs_separator);
+
+        if used_chars + separator_chars >= max_chars {
+            break;
+        }
+
+        let remaining_chars = max_chars - used_chars - separator_chars;
+        let segment_chars = segment.chars().count();
+        let take_chars = segment_chars.min(remaining_chars);
+
+        if take_chars == 0 {
+            break;
+        }
+
+        if needs_separator {
+            result.push(' ');
+            used_chars += 1;
+        }
+
+        if take_chars == segment_chars {
+            result.push_str(segment);
+        } else {
+            result.extend(segment.chars().take(take_chars));
+        }
+
+        used_chars += take_chars;
+    }
+
+    result
+}
+
+fn normalize_single_line(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact.chars().take(max_chars).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RealtimeProfile, build_realtime_prompt, normalize_language_hint, profile_vad};
+    use super::{
+        RealtimeProfile, build_realtime_prompt, build_truncated_transcript,
+        normalize_language_hint, normalize_single_line, profile_vad,
+    };
 
     #[test]
     fn builds_language_specific_prompt() {
@@ -166,5 +274,21 @@ mod tests {
 
         assert!(accuracy_prefix > caption_prefix);
         assert!(accuracy_silence > caption_silence);
+    }
+
+    #[test]
+    fn truncates_transcript_without_breaking_unicode() {
+        let segments = vec![String::from("olá"), String::from("mundo")];
+
+        let transcript = build_truncated_transcript(&segments, 5);
+
+        assert_eq!(transcript, "olá m");
+    }
+
+    #[test]
+    fn normalizes_title_to_single_line() {
+        let title = normalize_single_line("  Reuniao\n   de   produto  ", 80);
+
+        assert_eq!(title, "Reuniao de produto");
     }
 }

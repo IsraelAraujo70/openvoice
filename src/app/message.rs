@@ -1,4 +1,4 @@
-use iced::{keyboard, window, Point, Size};
+use iced::{Point, Size, keyboard, window};
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
 use crate::modules::dictation::domain::DictationOutput;

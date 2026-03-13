@@ -8,7 +8,6 @@ use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
 use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db;
-use crate::modules::live_transcription::infrastructure::chatgpt_title;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::window as app_window;
@@ -116,9 +115,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         // ------------------------------------------------------------------ //
         Message::OpenHomeView => {
             if state.is_recording() || state.is_processing() {
-                state.error = Some(String::from(
-                    "Finalize o ditado antes de abrir a Home.",
-                ));
+                state.error = Some(String::from("Finalize o ditado antes de abrir a Home."));
                 return Task::none();
             }
 
@@ -130,12 +127,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.sessions_loading = true;
 
             state.main_window_id.map_or_else(
-                || {
-                    Task::perform(
-                        async { db::list_sessions() },
-                        Message::SessionsLoaded,
-                    )
-                },
+                || Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
                 |window_id| {
                     let settings = app_window::home_window_settings();
                     let position = match settings.position {
@@ -148,10 +140,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         window::resize(window_id, settings.size),
                         window::move_to(window_id, position),
                         window::set_level(window_id, window::Level::Normal),
-                        Task::perform(
-                            async { db::list_sessions() },
-                            Message::SessionsLoaded,
-                        ),
+                        Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
                     ])
                 },
             )
@@ -189,9 +178,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             if needs_open {
                 if state.is_recording() || state.is_processing() {
-                    state.error = Some(String::from(
-                        "Finalize o ditado antes de abrir a Home.",
-                    ));
+                    state.error = Some(String::from("Finalize o ditado antes de abrir a Home."));
                     return Task::none();
                 }
 
@@ -228,10 +215,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
                 if reload_sessions {
                     state.sessions_loading = true;
-                    Task::perform(
-                        async { db::list_sessions() },
-                        Message::SessionsLoaded,
-                    )
+                    Task::perform(async { db::list_sessions() }, Message::SessionsLoaded)
                 } else {
                     Task::none()
                 }
@@ -500,7 +484,8 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
                         if let Some(window_id) = state.main_window_id {
                             morph_tasks.push(window::disable_mouse_passthrough(window_id));
-                            morph_tasks.push(window::set_level(window_id, window::Level::AlwaysOnTop));
+                            morph_tasks
+                                .push(window::set_level(window_id, window::Level::AlwaysOnTop));
                         }
                     }
 
@@ -890,15 +875,21 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     if let Some(session_id) = finalized_session_id {
                         if state.has_openai_credentials {
                             state.title_gen_failed_ids.insert(session_id);
-                            eprintln!("[openvoice][title] dispatching title generation for session_id={session_id}");
+                            eprintln!(
+                                "[openvoice][title] dispatching title generation for session_id={session_id}"
+                            );
                             return Task::perform(
                                 async move {
-                                    chatgpt_title::generate_session_title(session_id)
+                                    live_transcription_application::generate_session_title(
+                                        session_id,
+                                    )
                                 },
                                 Message::LiveSessionTitleGenerated,
                             );
                         } else {
-                            eprintln!("[openvoice][title] skipped: no OAuth credentials (has_openai_credentials=false)");
+                            eprintln!(
+                                "[openvoice][title] skipped: no OAuth credentials (has_openai_credentials=false)"
+                            );
                         }
                     } else {
                         eprintln!("[openvoice][title] skipped: finalized_session_id was None");
@@ -913,16 +904,15 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
         }
 
-
         Message::LiveSessionTitleGenerated(result) => {
             match result {
                 Ok((session_id, title)) => {
-                    eprintln!("[openvoice][title] title generated for session {session_id}: {title}");
+                    eprintln!(
+                        "[openvoice][title] title generated for session {session_id}: {title}"
+                    );
                     // Update the title in our cached sessions list if present
-                    if let Some(session) = state
-                        .sessions_list
-                        .iter_mut()
-                        .find(|s| s.id == session_id)
+                    if let Some(session) =
+                        state.sessions_list.iter_mut().find(|s| s.id == session_id)
                     {
                         session.title = Some(title.clone());
                     }
@@ -941,21 +931,19 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             // Chain: generate title for the next session without one,
             // skipping sessions that already failed.
             if state.has_openai_credentials {
-                if let Some(session) = state
-                    .sessions_list
-                    .iter()
-                    .find(|s| {
-                        s.title.is_none()
-                            && s.segment_count > 0
-                            && !state.title_gen_failed_ids.contains(&s.id)
-                    })
-                {
+                if let Some(session) = state.sessions_list.iter().find(|s| {
+                    s.title.is_none()
+                        && s.segment_count > 0
+                        && !state.title_gen_failed_ids.contains(&s.id)
+                }) {
                     let session_id = session.id;
                     // Mark as attempted so we don't retry on failure
                     state.title_gen_failed_ids.insert(session_id);
                     eprintln!("[openvoice][title] chaining title gen for session_id={session_id}");
                     return Task::perform(
-                        async move { chatgpt_title::generate_session_title(session_id) },
+                        async move {
+                            live_transcription_application::generate_session_title(session_id)
+                        },
                         Message::LiveSessionTitleGenerated,
                     );
                 }
@@ -963,7 +951,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             Task::none()
         }
-
 
         Message::SessionsLoaded(result) => {
             state.sessions_loading = false;
@@ -990,9 +977,13 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 {
                     let session_id = session.id;
                     state.title_gen_failed_ids.insert(session_id);
-                    eprintln!("[openvoice][title] retroactive title gen for session_id={session_id}");
+                    eprintln!(
+                        "[openvoice][title] retroactive title gen for session_id={session_id}"
+                    );
                     return Task::perform(
-                        async move { chatgpt_title::generate_session_title(session_id) },
+                        async move {
+                            live_transcription_application::generate_session_title(session_id)
+                        },
                         Message::LiveSessionTitleGenerated,
                     );
                 }
