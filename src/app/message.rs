@@ -1,5 +1,6 @@
 use iced::widget::text_editor;
 use iced::{Point, Size, keyboard, window};
+use iced::widget::markdown;
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
 use crate::modules::copilot::domain::{CopilotAnswer, CopilotMode, ScreenshotAttachment};
@@ -79,6 +80,7 @@ pub enum Message {
     ClearCopilotScreenshot,
     SubmitCopilotRequest,
     CopilotAnswerReceived(Result<CopilotAnswer, String>),
+    CopilotMarkdownLinkClicked(markdown::Uri),
     CopyCopilotAnswer,
     // Window behavior
     TogglePassthrough,

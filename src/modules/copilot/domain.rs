@@ -37,6 +37,39 @@ impl std::fmt::Display for CopilotMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopilotRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone)]
+pub struct CopilotChatMessage {
+    pub role: CopilotRole,
+    pub content: String,
+    pub markdown_items: Vec<markdown::Item>,
+}
+
+impl CopilotChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: CopilotRole::User,
+            content: content.into(),
+            markdown_items: Vec::new(),
+        }
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        let content = content.into();
+
+        Self {
+            role: CopilotRole::Assistant,
+            markdown_items: markdown::parse(&content).collect(),
+            content,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScreenshotAttachment {
     pub bytes: Vec<u8>,
@@ -80,3 +113,4 @@ pub struct CopilotTurn {
     pub screenshot_bytes: usize,
     pub created_at: String,
 }
+use iced::widget::markdown;

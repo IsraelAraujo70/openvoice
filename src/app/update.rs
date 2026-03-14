@@ -4,7 +4,9 @@ use crate::modules::audio::infrastructure::microphone;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
 use crate::modules::copilot::application as copilot_application;
-use crate::modules::copilot::domain::{CopilotAnswer, CopilotContext};
+use crate::modules::copilot::domain::{
+    CopilotAnswer, CopilotChatMessage, CopilotContext, CopilotMode, CopilotRole,
+};
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
@@ -14,6 +16,7 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::screenshot as screenshot_platform;
 use crate::platform::window as app_window;
+use iced::widget::text_editor;
 use iced::keyboard::{self, Key, key::Named};
 use iced::{Point, Task, window};
 
@@ -1076,6 +1079,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             if state.copilot_mode != mode {
                 state.copilot_mode = mode;
                 state.copilot_thread_id = None;
+                state.copilot_messages.clear();
+                state.copilot_error = None;
+                if state.main_view == MainView::Copilot {
+                    return resize_copilot_window(state);
+                }
             }
             Task::none()
         }
@@ -1133,11 +1141,14 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             state.copilot_busy = true;
             state.copilot_error = None;
-            state.copilot_last_question = Some(question.trim().to_owned());
+            state
+                .copilot_messages
+                .push(CopilotChatMessage::user(question.trim().to_owned()));
 
             let settings = state.settings.clone();
             let context = build_copilot_context(state, question);
             let thread_id = state.copilot_thread_id;
+            state.copilot_input = text_editor::Content::new();
 
             Task::perform(
                 async move { copilot_application::answer_question(&settings, context, thread_id) },
@@ -1149,7 +1160,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             match result {
                 Ok(CopilotAnswer { answer, thread_id }) => {
-                    state.copilot_answer = Some(answer);
+                    state
+                        .copilot_messages
+                        .push(CopilotChatMessage::assistant(answer));
                     state.copilot_thread_id = thread_id;
                     state.copilot_error = None;
                 }
@@ -1160,8 +1173,15 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
             Task::none()
         }
+        Message::CopilotMarkdownLinkClicked(_uri) => Task::none(),
         Message::CopyCopilotAnswer => {
-            let Some(answer) = state.copilot_answer.clone() else {
+            let Some(answer) = state
+                .copilot_messages
+                .iter()
+                .rev()
+                .find(|message| message.role == CopilotRole::Assistant)
+                .map(|message| message.content.clone())
+            else {
                 return Task::none();
             };
 
@@ -1340,14 +1360,7 @@ fn open_copilot_view(state: &mut Overlay) -> Task<Message> {
     state.error = None;
     state.passthrough_enabled = false;
 
-    state.main_window_id.map_or_else(Task::none, |window_id| {
-        Task::batch(apply_main_window_settings(
-            state,
-            window_id,
-            app_window::copilot_window_settings(),
-            window::Level::AlwaysOnTop,
-        ))
-    })
+    resize_copilot_window(state)
 }
 
 fn close_copilot_view(state: &mut Overlay) -> Task<Message> {
@@ -1410,6 +1423,23 @@ fn apply_main_window_settings(
         window::move_to(window_id, position),
         window::set_level(window_id, level),
     ]
+}
+
+fn resize_copilot_window(state: &mut Overlay) -> Task<Message> {
+    state.main_window_id.map_or_else(Task::none, |window_id| {
+        let settings = if state.copilot_mode == CopilotMode::Meeting {
+            app_window::copilot_compact_window_settings()
+        } else {
+            app_window::copilot_chat_window_settings()
+        };
+
+        Task::batch(apply_main_window_settings(
+            state,
+            window_id,
+            settings,
+            window::Level::AlwaysOnTop,
+        ))
+    })
 }
 
 fn build_copilot_context(state: &Overlay, question: String) -> CopilotContext {

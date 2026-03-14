@@ -2,7 +2,7 @@ use crate::app::message::Message;
 use crate::modules::audio::infrastructure::microphone::Recorder;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::PendingOpenAiOAuthFlow;
-use crate::modules::copilot::domain::{CopilotMode, ScreenshotAttachment};
+use crate::modules::copilot::domain::{CopilotChatMessage, CopilotMode, ScreenshotAttachment};
 use crate::modules::live_transcription::application::ActiveLiveTranscription;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::application as settings_application;
@@ -77,8 +77,7 @@ pub struct Overlay {
     pub copilot_input: text_editor::Content,
     pub copilot_busy: bool,
     pub copilot_error: Option<String>,
-    pub copilot_answer: Option<String>,
-    pub copilot_last_question: Option<String>,
+    pub copilot_messages: Vec<CopilotChatMessage>,
     pub copilot_thread_id: Option<i64>,
     pub copilot_include_transcript: bool,
     pub copilot_screenshot: Option<ScreenshotAttachment>,
@@ -230,8 +229,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
         copilot_input: text_editor::Content::new(),
         copilot_busy: false,
         copilot_error: None,
-        copilot_answer: None,
-        copilot_last_question: None,
+        copilot_messages: Vec::new(),
         copilot_thread_id: None,
         copilot_include_transcript,
         copilot_screenshot: None,

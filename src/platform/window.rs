@@ -7,6 +7,8 @@ const HOME_WIDTH: f32 = 700.0;
 const HOME_HEIGHT: f32 = 800.0;
 const COPILOT_WIDTH: f32 = 620.0;
 const COPILOT_HEIGHT: f32 = 540.0;
+const COPILOT_COMPACT_WIDTH: f32 = 500.0;
+const COPILOT_COMPACT_HEIGHT: f32 = 260.0;
 const SUBTITLE_WIDTH: f32 = 860.0;
 const SUBTITLE_HEIGHT: f32 = 80.0;
 
@@ -69,7 +71,7 @@ pub fn subtitle_window_settings(primary: Option<MonitorGeometry>) -> window::Set
     }
 }
 
-pub fn copilot_window_settings() -> window::Settings {
+pub fn copilot_chat_window_settings() -> window::Settings {
     let primary = detect_primary_monitor_geometry();
 
     window::Settings {
@@ -83,6 +85,25 @@ pub fn copilot_window_settings() -> window::Settings {
         position: primary
             .map(|monitor| window::Position::Specific(copilot_position(monitor)))
             .unwrap_or(window::Position::Specific(Point::new(64.0, 140.0))),
+        exit_on_close_request: false,
+        ..Default::default()
+    }
+}
+
+pub fn copilot_compact_window_settings() -> window::Settings {
+    let primary = detect_primary_monitor_geometry();
+
+    window::Settings {
+        decorations: false,
+        transparent: true,
+        resizable: false,
+        level: window::Level::AlwaysOnTop,
+        size: primary
+            .map(copilot_compact_size)
+            .unwrap_or_else(|| Size::new(COPILOT_COMPACT_WIDTH, COPILOT_COMPACT_HEIGHT)),
+        position: primary
+            .map(|monitor| window::Position::Specific(copilot_compact_position(monitor)))
+            .unwrap_or(window::Position::Specific(Point::new(64.0, 180.0))),
         exit_on_close_request: false,
         ..Default::default()
     }
@@ -139,6 +160,22 @@ fn copilot_position(monitor: MonitorGeometry) -> Point {
     Point::new(
         monitor.position.x + (monitor.size.width - size.width - 32.0).max(24.0),
         monitor.position.y + 108.0,
+    )
+}
+
+fn copilot_compact_size(monitor: MonitorGeometry) -> Size {
+    Size::new(
+        COPILOT_COMPACT_WIDTH.min((monitor.size.width - 48.0).max(420.0)),
+        COPILOT_COMPACT_HEIGHT.min((monitor.size.height - 120.0).max(220.0)),
+    )
+}
+
+fn copilot_compact_position(monitor: MonitorGeometry) -> Point {
+    let size = copilot_compact_size(monitor);
+
+    Point::new(
+        monitor.position.x + (monitor.size.width - size.width - 24.0).max(16.0),
+        monitor.position.y + monitor.size.height - size.height - 124.0,
     )
 }
 

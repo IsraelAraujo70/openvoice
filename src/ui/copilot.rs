@@ -1,12 +1,20 @@
 use crate::app::{Message, Overlay};
 use crate::modules::copilot::application as copilot_application;
-use crate::modules::copilot::domain::CopilotMode;
+use crate::modules::copilot::domain::{CopilotChatMessage, CopilotMode, CopilotRole};
 use iced::widget::{
-    Space, button, checkbox, column, container, radio, row, scrollable, text, text_editor,
+    Space, button, checkbox, column, container, markdown, radio, row, scrollable, text,
+    text_editor,
 };
-use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
+use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Theme};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
+    match state.copilot_mode {
+        CopilotMode::Meeting => meeting_overlay(state),
+        CopilotMode::Interview | CopilotMode::General => chat_overlay(state),
+    }
+}
+
+fn chat_overlay(state: &Overlay) -> Element<'_, Message> {
     let header = row![
         column![
             text("Copilot").size(24).color(Color::WHITE),
@@ -16,11 +24,97 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
         ]
         .spacing(2),
         Space::new().width(Length::Fill),
-        action_button("Fechar", Some(Message::CloseCopilotView), true),
+        subtle_action("Fechar", Some(Message::CloseCopilotView)),
     ]
     .align_y(Alignment::Center);
 
-    let modes = row![
+    let shell = container(
+        column![
+            header,
+            mode_bar(state),
+            message_feed(state, true),
+            composer(state, false),
+        ]
+        .spacing(16),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .padding([22, 24])
+    .style(|_| shell_style());
+
+    container(shell)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(12)
+        .into()
+}
+
+fn meeting_overlay(state: &Overlay) -> Element<'_, Message> {
+    let latest_user = state
+        .copilot_messages
+        .iter()
+        .rev()
+        .find(|message| message.role == CopilotRole::User);
+    let latest_answer = state
+        .copilot_messages
+        .iter()
+        .rev()
+        .find(|message| message.role == CopilotRole::Assistant);
+
+    let mut body = column![
+        row![
+            text("Meeting Copilot")
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.82)),
+            Space::new().width(Length::Fill),
+            subtle_action("Chat", Some(Message::CopilotModeChanged(CopilotMode::General))),
+            subtle_action("Fechar", Some(Message::CloseCopilotView)),
+        ]
+        .align_y(Alignment::Center)
+    ]
+    .spacing(10);
+
+    if let Some(question) = latest_user {
+        body = body.push(
+            text(format!("Pergunta: {}", question.content))
+                .size(11)
+                .color(Color::from_rgba8(226, 232, 240, 0.56)),
+        );
+    }
+
+    if let Some(error) = &state.copilot_error {
+        body = body.push(error_card(error));
+    } else if let Some(answer) = latest_answer {
+        body = body.push(
+            container(markdown_message(answer))
+                .padding([12, 14])
+                .width(Length::Fill)
+                .style(|_| meeting_answer_style()),
+        );
+    } else {
+        body = body.push(
+            text("Respostas curtas e discretas durante a reuniao.")
+                .size(12)
+                .color(Color::from_rgba8(226, 232, 240, 0.66)),
+        );
+    }
+
+    body = body.push(composer(state, true));
+
+    container(
+        container(body)
+            .padding([12, 14])
+            .style(|_| meeting_shell_style()),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .into()
+}
+
+fn mode_bar(state: &Overlay) -> Element<'_, Message> {
+    let left = row![
         mode_radio("General", CopilotMode::General, state.copilot_mode),
         mode_radio("Interview", CopilotMode::Interview, state.copilot_mode),
         mode_radio("Meeting", CopilotMode::Meeting, state.copilot_mode),
@@ -28,95 +122,165 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
     .spacing(14)
     .wrap();
 
-    let editor = container(
-        text_editor(&state.copilot_input)
-            .placeholder("Pergunte com contexto da sessao, entrevista ou agenda...")
-            .on_action(Message::CopilotInputEdited)
-            .height(Length::Fixed(180.0))
-            .padding(14),
-    )
-    .width(Length::Fill)
-    .style(|_| editor_style());
+    let right = checkbox(state.copilot_include_transcript)
+        .label("Transcript automatico")
+        .on_toggle(Message::CopilotIncludeTranscriptChanged)
+        .text_size(12);
 
+    row![left, Space::new().width(Length::Fill), right]
+        .align_y(Alignment::Center)
+        .into()
+}
+
+fn message_feed(state: &Overlay, show_history: bool) -> Element<'_, Message> {
+    let mut col = column![].spacing(14);
+
+    if state.copilot_messages.is_empty() && state.copilot_error.is_none() {
+        col = col.push(
+            container(
+                text("Use o transcript atual, sessao salva e screenshot opcional para conversar com o copiloto.")
+                    .size(12)
+                    .color(Color::from_rgba8(148, 163, 184, 0.72)),
+            )
+            .padding([4, 2]),
+        );
+    }
+
+    let iter: Box<dyn Iterator<Item = _>> = if show_history {
+        Box::new(state.copilot_messages.iter())
+    } else {
+        Box::new(state.copilot_messages.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev())
+    };
+
+    for message in iter {
+        col = col.push(match message.role {
+            CopilotRole::User => user_message(&message.content),
+            CopilotRole::Assistant => assistant_message(message),
+        });
+    }
+
+    if let Some(error) = &state.copilot_error {
+        col = col.push(error_card(error));
+    }
+
+    if state.copilot_busy {
+        col = col.push(typing_indicator());
+    }
+
+    scrollable(col).height(Length::Fill).into()
+}
+
+fn composer(state: &Overlay, compact: bool) -> Element<'_, Message> {
     let screenshot_summary = state
         .copilot_screenshot
         .as_ref()
         .map(copilot_application::screenshot_summary)
-        .unwrap_or_else(|| String::from("Sem screenshot anexado"));
+        .unwrap_or_else(|| String::from("Sem screenshot"));
 
-    let screenshot_row = row![
+    let editor_height = if compact { 72.0 } else { 120.0 };
+
+    let editor = container(
+        text_editor(&state.copilot_input)
+            .placeholder("Pergunte algo...")
+            .on_action(Message::CopilotInputEdited)
+            .height(Length::Fixed(editor_height))
+            .padding(12),
+    )
+    .width(Length::Fill)
+    .style(|_| editor_style());
+
+    let actions = row![
         text(screenshot_summary)
-            .size(12)
-            .color(Color::from_rgba8(148, 163, 184, 0.82)),
+            .size(11)
+            .color(Color::from_rgba8(148, 163, 184, 0.72)),
         Space::new().width(Length::Fill),
-        action_button(
+        subtle_action(
             if state.copilot_busy {
                 "Capturando..."
             } else {
-                "Capturar tela"
+                "Tela"
             },
             (!state.copilot_busy).then_some(Message::CaptureCopilotScreenshot),
-            false,
         ),
-        action_button(
-            "Remover",
+        subtle_action(
+            "Limpar",
             state
                 .copilot_screenshot
                 .as_ref()
                 .map(|_| Message::ClearCopilotScreenshot),
-            true,
         ),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
-
-    let toggles = checkbox(state.copilot_include_transcript)
-        .label("Incluir transcript atual automaticamente")
-        .on_toggle(Message::CopilotIncludeTranscriptChanged)
-        .text_size(13);
-
-    let submit_row = row![
-        action_button(
+        primary_action(
             if state.copilot_busy {
                 "Respondendo..."
             } else {
                 "Perguntar"
             },
             (!state.copilot_busy).then_some(Message::SubmitCopilotRequest),
-            false,
         ),
-        action_button(
-            "Copiar resposta",
+        subtle_action(
+            "Copiar",
             state
-                .copilot_answer
-                .as_ref()
-                .map(|_| Message::CopyCopilotAnswer),
-            true,
+                .copilot_messages
+                .iter()
+                .any(|message| message.role == CopilotRole::Assistant)
+                .then_some(Message::CopyCopilotAnswer),
         ),
     ]
-    .spacing(10);
+    .spacing(8)
+    .align_y(Alignment::Center);
 
-    let body = column![
-        modes,
-        editor,
-        screenshot_row,
-        toggles,
-        submit_row,
-        answer_block(state),
+    column![editor, actions].spacing(10).into()
+}
+
+fn user_message(content: &str) -> Element<'_, Message> {
+    row![
+        Space::new().width(Length::Fill),
+        container(text(content.to_owned()).size(13).color(Color::WHITE))
+            .padding([12, 14])
+            .max_width(420)
+            .style(|_| user_bubble_style()),
     ]
-    .spacing(14);
+    .align_y(Alignment::Start)
+    .into()
+}
 
-    let shell = container(column![header, scrollable(body).height(Length::Fill)].spacing(18))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding([22, 24])
-        .style(|_| shell_style());
-
-    container(shell)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding(12)
+fn assistant_message(message: &CopilotChatMessage) -> Element<'_, Message> {
+    container(markdown_message(message))
+        .padding([12, 14])
+        .max_width(520)
+        .style(|_| assistant_bubble_style())
         .into()
+}
+
+fn markdown_message(message: &CopilotChatMessage) -> Element<'_, Message> {
+    markdown::view(message.markdown_items.iter(), Theme::TokyoNightStorm)
+        .map(Message::CopilotMarkdownLinkClicked)
+}
+
+fn error_card(error: &str) -> Element<'_, Message> {
+    container(
+        column![
+            text("Issue").size(12).color(Color::from_rgb8(251, 146, 60)),
+            text(error.to_owned())
+                .size(13)
+                .color(Color::from_rgb8(255, 207, 164)),
+        ]
+        .spacing(6),
+    )
+    .padding([12, 14])
+    .style(|_| error_style())
+    .into()
+}
+
+fn typing_indicator() -> Element<'static, Message> {
+    container(
+        text("Pensando...")
+            .size(12)
+            .color(Color::from_rgba8(148, 163, 184, 0.82)),
+    )
+    .padding([8, 12])
+    .style(|_| assistant_bubble_style())
+    .into()
 }
 
 fn context_label(state: &Overlay) -> String {
@@ -142,67 +306,33 @@ fn mode_radio<'a>(
         .into()
 }
 
-fn answer_block(state: &Overlay) -> Element<'_, Message> {
-    if let Some(error) = &state.copilot_error {
-        return container(
-            column![
-                text("Issue").size(12).color(Color::from_rgb8(251, 146, 60)),
-                text(error).size(13).color(Color::from_rgb8(255, 207, 164)),
-            ]
-            .spacing(6),
-        )
-        .padding(14)
-        .style(|_| error_style())
-        .into();
-    }
-
-    if let Some(answer) = &state.copilot_answer {
-        return container(
-            scrollable(
-                text(answer.clone())
-                    .size(13)
-                    .color(Color::from_rgba8(226, 232, 240, 0.9)),
-            )
-            .height(Length::Fill),
-        )
-        .padding(16)
-        .height(Length::Fill)
-        .style(|_| answer_style())
-        .into();
-    }
-
-    container(
-        text("O copiloto usa transcript, sessao salva e screenshot opcional para responder.")
-            .size(12)
-            .color(Color::from_rgba8(148, 163, 184, 0.72)),
-    )
-    .padding([8, 2])
-    .into()
-}
-
-fn action_button<'a>(
-    label: &'static str,
-    on_press: Option<Message>,
-    subtle: bool,
-) -> Element<'a, Message> {
+fn primary_action<'a>(label: &'static str, on_press: Option<Message>) -> Element<'a, Message> {
     button(text(label).size(13))
         .padding([10, 14])
         .on_press_maybe(on_press)
-        .style(move |_, status| button_style(status, subtle))
+        .style(|_, status| button_style(status, false))
+        .into()
+}
+
+fn subtle_action<'a>(label: &'static str, on_press: Option<Message>) -> Element<'a, Message> {
+    button(text(label).size(12))
+        .padding([8, 12])
+        .on_press_maybe(on_press)
+        .style(|_, status| button_style(status, true))
         .into()
 }
 
 fn button_style(status: button::Status, subtle: bool) -> button::Style {
     let (bg, border, text_color) = if subtle {
         (
-            Color::from_rgba8(255, 255, 255, 0.08),
-            Color::from_rgba8(255, 255, 255, 0.14),
+            Color::from_rgba8(255, 255, 255, 0.06),
+            Color::from_rgba8(255, 255, 255, 0.12),
             Color::WHITE,
         )
     } else {
         (
-            Color::from_rgba8(34, 211, 238, 0.84),
-            Color::from_rgba8(103, 232, 249, 0.24),
+            Color::from_rgba8(34, 211, 238, 0.82),
+            Color::from_rgba8(103, 232, 249, 0.28),
             Color::from_rgb8(8, 14, 20),
         )
     };
@@ -222,15 +352,15 @@ fn button_style(status: button::Status, subtle: bool) -> button::Style {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(bg.scale_alpha(1.08))),
             border: Border {
-                color: border.scale_alpha(1.15),
+                color: border.scale_alpha(1.1),
                 width: 1.0,
                 radius: 10.0.into(),
             },
             text_color,
             shadow: Shadow {
-                color: bg.scale_alpha(0.16),
-                offset: iced::Vector::new(0.0, 8.0),
-                blur_radius: 18.0,
+                color: bg.scale_alpha(0.18),
+                offset: iced::Vector::new(0.0, 6.0),
+                blur_radius: 16.0,
             },
             snap: false,
         },
@@ -252,30 +382,65 @@ fn shell_style() -> container::Style {
     container::Style::default()
         .background(Background::Color(Color::from_rgba8(8, 12, 18, 0.96)))
         .border(Border {
-            color: Color::from_rgba8(34, 211, 238, 0.18),
+            color: Color::from_rgba8(34, 211, 238, 0.16),
             width: 1.0,
             radius: 18.0.into(),
         })
         .shadow(Shadow {
             color: Color::from_rgba8(0, 0, 0, 0.22),
             offset: iced::Vector::new(0.0, 10.0),
-            blur_radius: 26.0,
+            blur_radius: 24.0,
+        })
+}
+
+fn meeting_shell_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(4, 8, 13, 0.78)))
+        .border(Border {
+            color: Color::from_rgba8(255, 255, 255, 0.08),
+            width: 1.0,
+            radius: 16.0.into(),
+        })
+        .shadow(Shadow {
+            color: Color::from_rgba8(0, 0, 0, 0.28),
+            offset: iced::Vector::new(0.0, 6.0),
+            blur_radius: 18.0,
+        })
+}
+
+fn user_bubble_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(34, 211, 238, 0.26)))
+        .border(Border {
+            color: Color::from_rgba8(103, 232, 249, 0.22),
+            width: 1.0,
+            radius: 16.0.into(),
+        })
+}
+
+fn assistant_bubble_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(255, 255, 255, 0.05)))
+        .border(Border {
+            color: Color::from_rgba8(255, 255, 255, 0.08),
+            width: 1.0,
+            radius: 16.0.into(),
+        })
+}
+
+fn meeting_answer_style() -> container::Style {
+    container::Style::default()
+        .background(Background::Color(Color::from_rgba8(0, 0, 0, 0.26)))
+        .border(Border {
+            color: Color::from_rgba8(255, 255, 255, 0.06),
+            width: 1.0,
+            radius: 12.0.into(),
         })
 }
 
 fn editor_style() -> container::Style {
     container::Style::default()
         .background(Background::Color(Color::from_rgba8(2, 6, 11, 0.72)))
-        .border(Border {
-            color: Color::from_rgba8(255, 255, 255, 0.08),
-            width: 1.0,
-            radius: 14.0.into(),
-        })
-}
-
-fn answer_style() -> container::Style {
-    container::Style::default()
-        .background(Background::Color(Color::from_rgba8(255, 255, 255, 0.05)))
         .border(Border {
             color: Color::from_rgba8(255, 255, 255, 0.08),
             width: 1.0,
