@@ -180,6 +180,7 @@ fn session_detail<'a>(state: &'a Overlay, _session: &'a SessionSummary) -> Eleme
 
     let actions = row![
         action_btn("Copiar", Message::CopySessionTranscript),
+        action_btn("Perguntar", Message::OpenCopilotView),
         action_btn("Exportar para Obsidian", Message::CopySessionTranscript), // placeholder
     ]
     .spacing(8);

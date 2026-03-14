@@ -86,10 +86,10 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
         ),
         action_card(
             "Perguntar Algo",
-            "Chat contextual com LLM",
-            "em breve",
-            None,
-            true,
+            "Chat contextual com transcript e screenshot",
+            "Copilot",
+            Some(Message::OpenCopilotView),
+            false,
         ),
     ]
     .spacing(12);

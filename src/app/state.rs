@@ -2,12 +2,14 @@ use crate::app::message::Message;
 use crate::modules::audio::infrastructure::microphone::Recorder;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::PendingOpenAiOAuthFlow;
+use crate::modules::copilot::domain::{CopilotMode, ScreenshotAttachment};
 use crate::modules::live_transcription::application::ActiveLiveTranscription;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
 use crate::platform::window as platform_window;
 use crate::platform::window::MonitorGeometry;
+use iced::widget::text_editor;
 use iced::{Point, Task, window};
 use std::collections::HashSet;
 
@@ -19,6 +21,7 @@ pub struct Overlay {
     // HUD state
     pub passthrough_enabled: bool,
     pub main_view: MainView,
+    pub previous_main_view: MainView,
     pub home_tab: HomeTab,
     pub primary_monitor: Option<MonitorGeometry>,
     pub hud_position: Option<Point>,
@@ -68,6 +71,17 @@ pub struct Overlay {
 
     // Title generation circuit breaker: session IDs where generation already failed
     pub title_gen_failed_ids: HashSet<i64>,
+
+    // Copilot
+    pub copilot_mode: CopilotMode,
+    pub copilot_input: text_editor::Content,
+    pub copilot_busy: bool,
+    pub copilot_error: Option<String>,
+    pub copilot_answer: Option<String>,
+    pub copilot_last_question: Option<String>,
+    pub copilot_thread_id: Option<i64>,
+    pub copilot_include_transcript: bool,
+    pub copilot_screenshot: Option<ScreenshotAttachment>,
 }
 
 impl Overlay {
@@ -121,6 +135,7 @@ pub enum OverlayPhase {
 pub enum MainView {
     Hud,
     Home,
+    Copilot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +174,8 @@ pub fn boot() -> (Overlay, Task<Message>) {
     let auth_snapshot = auth_application::load_auth_snapshot()
         .unwrap_or_else(|_| crate::modules::auth::domain::OpenAiAuthSnapshot::signed_out());
     let settings_form = SettingsForm::from(&settings);
+    let copilot_mode = settings.copilot_default_mode();
+    let copilot_include_transcript = settings.copilot_auto_include_transcript;
     let missing_api_key = (!settings.has_api_key())
         .then(|| String::from("Cadastre sua OpenRouter API key no painel de settings abaixo."));
 
@@ -167,6 +184,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
         subtitle_window_id: None,
         passthrough_enabled: config.start_with_passthrough,
         main_view: MainView::Hud,
+        previous_main_view: MainView::Hud,
         home_tab: HomeTab::Home,
         primary_monitor,
         hud_position: None,
@@ -208,6 +226,15 @@ pub fn boot() -> (Overlay, Task<Message>) {
         selected_session_segments: Vec::new(),
         selected_session_loading: false,
         title_gen_failed_ids: HashSet::new(),
+        copilot_mode,
+        copilot_input: text_editor::Content::new(),
+        copilot_busy: false,
+        copilot_error: None,
+        copilot_answer: None,
+        copilot_last_question: None,
+        copilot_thread_id: None,
+        copilot_include_transcript,
+        copilot_screenshot: None,
     };
 
     // With iced::daemon, we must open the initial window manually.

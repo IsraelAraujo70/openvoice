@@ -1,9 +1,10 @@
 use crate::app::{Message, Overlay};
+use crate::modules::copilot::domain::CopilotMode;
 use crate::modules::settings::domain::{
     SUPPORTED_OPENAI_REALTIME_LANGUAGES, SUPPORTED_OPENAI_REALTIME_PROFILES,
 };
 use iced::widget::{
-    Space, button, column, container, pick_list, row, scrollable, text, text_input,
+    Space, button, checkbox, column, container, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
@@ -156,10 +157,40 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
         .style(|_| card_style()),
         container(
             column![
+                section_title("Copilot"),
+                text(
+                    "O copiloto usa a sessao OAuth do ChatGPT para responder com contexto de transcript, sessao salva e screenshot opcional."
+                )
+                .size(12)
+                .color(Color::from_rgba8(148, 163, 184, 0.88)),
+                text_input("Copilot model", &state.settings_form.copilot_model)
+                    .on_input(Message::SettingsCopilotModelChanged)
+                    .padding([12, 14]),
+                pick_list(
+                    SUPPORTED_COPILOT_MODE_OPTIONS,
+                    selected_copilot_mode_option(&state.settings_form.copilot_default_mode),
+                    |mode| Message::SettingsCopilotDefaultModeChanged(mode.code().to_owned())
+                )
+                .placeholder("Default copilot mode"),
+                checkbox(state.settings_form.copilot_auto_include_transcript)
+                    .label("Include transcript by default")
+                    .on_toggle(Message::SettingsCopilotAutoIncludeTranscriptChanged)
+                    .text_size(13),
+                checkbox(state.settings_form.copilot_save_history)
+                    .label("Save copilot history locally")
+                    .on_toggle(Message::SettingsCopilotSaveHistoryChanged)
+                    .text_size(13),
+            ]
+            .spacing(14),
+        )
+        .padding(18)
+        .style(|_| card_style()),
+        container(
+            column![
                 section_title("OpenAI OAuth"),
                 openai_auth_action,
                 text(
-                    "Mantenha o login ChatGPT aqui para futuros fluxos que vao escrever, sincronizar ou usar sessao OAuth. Realtime nao depende mais desta sessao."
+                    "Mantenha o login ChatGPT aqui para copiloto, title generation e futuros fluxos OAuth. Realtime nao depende mais desta sessao."
                 )
                 .size(12)
                 .color(Color::from_rgba8(148, 163, 184, 0.88)),
@@ -188,9 +219,19 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                 status_row(
                     "ChatGPT OAuth",
                     if state.has_openai_credentials {
-                        "connected"
+                        "connected for copilot"
                     } else {
                         "not signed in"
+                    },
+                ),
+                status_row("Copilot model", state.settings.copilot_model.clone()),
+                status_row("Copilot default mode", state.settings.copilot_default_mode.clone()),
+                status_row(
+                    "Copilot transcript",
+                    if state.settings.copilot_auto_include_transcript {
+                        "included by default"
+                    } else {
+                        "manual only"
                     },
                 ),
                 status_row(
@@ -317,7 +358,23 @@ struct ProfileOption {
     code: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CopilotModeOption {
+    label: &'static str,
+    code: &'static str,
+}
+
 impl ProfileOption {
+    const fn new(label: &'static str, code: &'static str) -> Self {
+        Self { label, code }
+    }
+
+    fn code(self) -> &'static str {
+        self.code
+    }
+}
+
+impl CopilotModeOption {
     const fn new(label: &'static str, code: &'static str) -> Self {
         Self { label, code }
     }
@@ -349,6 +406,12 @@ impl std::fmt::Display for ProfileOption {
     }
 }
 
+impl std::fmt::Display for CopilotModeOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.label.fmt(f)
+    }
+}
+
 const SUPPORTED_OPENAI_REALTIME_LANGUAGE_OPTIONS: [LanguageOption; 8] = [
     LanguageOption::new("Auto", ""),
     LanguageOption::new("Portuguese", "pt"),
@@ -364,6 +427,12 @@ const SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS: [ProfileOption; 3] = [
     ProfileOption::new("Caption", "caption"),
     ProfileOption::new("Balanced", "balanced"),
     ProfileOption::new("Accuracy", "accuracy"),
+];
+
+const SUPPORTED_COPILOT_MODE_OPTIONS: [CopilotModeOption; 3] = [
+    CopilotModeOption::new("General", "general"),
+    CopilotModeOption::new("Interview", "interview"),
+    CopilotModeOption::new("Meeting", "meeting"),
 ];
 
 fn selected_language_option(language: &str) -> Option<LanguageOption> {
@@ -387,6 +456,15 @@ fn selected_profile_option(profile: &str) -> Option<ProfileOption> {
     };
 
     SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS
+        .iter()
+        .copied()
+        .find(|option| option.code == normalized)
+}
+
+fn selected_copilot_mode_option(mode: &str) -> Option<CopilotModeOption> {
+    let normalized = CopilotMode::from_code(mode).code();
+
+    SUPPORTED_COPILOT_MODE_OPTIONS
         .iter()
         .copied()
         .find(|option| option.code == normalized)

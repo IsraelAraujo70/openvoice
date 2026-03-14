@@ -3,6 +3,8 @@ use crate::app::state::{HomeTab, MainView, Overlay, OverlayPhase};
 use crate::modules::audio::infrastructure::microphone;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
+use crate::modules::copilot::application as copilot_application;
+use crate::modules::copilot::domain::{CopilotAnswer, CopilotContext};
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
@@ -10,6 +12,7 @@ use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
+use crate::platform::screenshot as screenshot_platform;
 use crate::platform::window as app_window;
 use iced::keyboard::{self, Key, key::Named};
 use iced::{Point, Task, window};
@@ -73,19 +76,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
-            if let Some(monitor) = state.primary_monitor {
-                let clamped = app_window::clamp_hud_to_monitor(position, monitor);
-                state.hud_position = Some(clamped);
-
-                if clamped != position {
-                    return state
-                        .main_window_id
-                        .map_or_else(Task::none, |id| window::move_to(id, clamped));
-                }
-            } else {
-                state.hud_position = Some(position);
-            }
-
+            state.hud_position = Some(position);
             Task::none()
         }
 
@@ -96,6 +87,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             keyboard::Event::KeyPressed {
                 key, physical_key, ..
             } => match key.as_ref() {
+                Key::Named(Named::Escape) if state.main_view == MainView::Copilot => {
+                    Task::done(Message::CloseCopilotView)
+                }
                 Key::Named(Named::Escape) if state.main_view == MainView::Home => {
                     Task::done(Message::CloseHomeView)
                 }
@@ -145,6 +139,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 },
             )
         }
+
+        Message::OpenCopilotView => open_copilot_view(state),
+
+        Message::CloseCopilotView => close_copilot_view(state),
 
         Message::CloseHomeView => {
             state.main_view = MainView::Hud;
@@ -249,6 +247,22 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.settings_form.openai_realtime_profile = value;
             Task::none()
         }
+        Message::SettingsCopilotModelChanged(value) => {
+            state.settings_form.copilot_model = value;
+            Task::none()
+        }
+        Message::SettingsCopilotDefaultModeChanged(value) => {
+            state.settings_form.copilot_default_mode = value;
+            Task::none()
+        }
+        Message::SettingsCopilotAutoIncludeTranscriptChanged(value) => {
+            state.settings_form.copilot_auto_include_transcript = value;
+            Task::none()
+        }
+        Message::SettingsCopilotSaveHistoryChanged(value) => {
+            state.settings_form.copilot_save_history = value;
+            Task::none()
+        }
         Message::SaveSettings => {
             state.is_saving_settings = true;
             state.settings_note = Some(String::from("Salvando settings..."));
@@ -260,6 +274,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             let openai_realtime_model = state.settings_form.openai_realtime_model.clone();
             let openai_realtime_language = state.settings_form.openai_realtime_language.clone();
             let openai_realtime_profile = state.settings_form.openai_realtime_profile.clone();
+            let copilot_model = state.settings_form.copilot_model.clone();
+            let copilot_default_mode = state.settings_form.copilot_default_mode.clone();
+            let copilot_auto_include_transcript =
+                state.settings_form.copilot_auto_include_transcript;
+            let copilot_save_history = state.settings_form.copilot_save_history;
 
             Task::perform(
                 async move {
@@ -270,6 +289,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                         openai_realtime_model,
                         openai_realtime_language,
                         openai_realtime_profile,
+                        copilot_model,
+                        copilot_default_mode,
+                        copilot_auto_include_transcript,
+                        copilot_save_history,
                     )
                 },
                 Message::SettingsSaved,
@@ -282,6 +305,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 Ok(settings) => {
                     state.settings = settings;
                     state.settings_form = SettingsForm::from(&state.settings);
+                    state.copilot_mode = state.settings.copilot_default_mode();
+                    state.copilot_include_transcript =
+                        state.settings.copilot_auto_include_transcript;
                     state.settings_note = Some(String::from("Settings salvas em disco."));
                     state.error = None;
 
@@ -1040,6 +1066,112 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         }
 
         // ------------------------------------------------------------------ //
+        // Copilot
+        // ------------------------------------------------------------------ //
+        Message::CopilotInputEdited(action) => {
+            state.copilot_input.perform(action);
+            Task::none()
+        }
+        Message::CopilotModeChanged(mode) => {
+            if state.copilot_mode != mode {
+                state.copilot_mode = mode;
+                state.copilot_thread_id = None;
+            }
+            Task::none()
+        }
+        Message::CopilotIncludeTranscriptChanged(value) => {
+            state.copilot_include_transcript = value;
+            Task::none()
+        }
+        Message::CaptureCopilotScreenshot => {
+            if state.copilot_busy {
+                return Task::none();
+            }
+
+            state.copilot_error = None;
+            Task::perform(
+                async move { screenshot_platform::capture_primary_display() },
+                Message::CopilotScreenshotCaptured,
+            )
+        }
+        Message::CopilotScreenshotCaptured(result) => {
+            match result {
+                Ok(screenshot) => {
+                    state.copilot_screenshot = Some(screenshot);
+                    state.copilot_error = None;
+                }
+                Err(error) => {
+                    state.copilot_error = Some(error);
+                }
+            }
+
+            Task::none()
+        }
+        Message::ClearCopilotScreenshot => {
+            state.copilot_screenshot = None;
+            Task::none()
+        }
+        Message::SubmitCopilotRequest => {
+            if state.copilot_busy {
+                return Task::none();
+            }
+
+            if !state.has_openai_credentials {
+                state.copilot_error = Some(String::from(
+                    "Faca login com ChatGPT nas settings antes de usar o copiloto.",
+                ));
+                return Task::none();
+            }
+
+            let question = state.copilot_input.text();
+            if question.trim().is_empty() {
+                state.copilot_error = Some(String::from(
+                    "Escreva uma pergunta antes de chamar o copiloto.",
+                ));
+                return Task::none();
+            }
+
+            state.copilot_busy = true;
+            state.copilot_error = None;
+            state.copilot_last_question = Some(question.trim().to_owned());
+
+            let settings = state.settings.clone();
+            let context = build_copilot_context(state, question);
+            let thread_id = state.copilot_thread_id;
+
+            Task::perform(
+                async move { copilot_application::answer_question(&settings, context, thread_id) },
+                Message::CopilotAnswerReceived,
+            )
+        }
+        Message::CopilotAnswerReceived(result) => {
+            state.copilot_busy = false;
+
+            match result {
+                Ok(CopilotAnswer { answer, thread_id }) => {
+                    state.copilot_answer = Some(answer);
+                    state.copilot_thread_id = thread_id;
+                    state.copilot_error = None;
+                }
+                Err(error) => {
+                    state.copilot_error = Some(error);
+                }
+            }
+
+            Task::none()
+        }
+        Message::CopyCopilotAnswer => {
+            let Some(answer) = state.copilot_answer.clone() else {
+                return Task::none();
+            };
+
+            Task::batch([
+                iced::clipboard::write(answer.clone()),
+                iced::clipboard::write_primary(answer),
+            ])
+        }
+
+        // ------------------------------------------------------------------ //
         // Window behavior
         // ------------------------------------------------------------------ //
         Message::TogglePassthrough => {
@@ -1097,19 +1229,12 @@ fn morph_home_to_hud(state: &mut Overlay) -> Vec<Task<Message>> {
         return Vec::new();
     };
 
-    let hud = app_window::hud_settings();
-    let default_position = match hud.position {
-        window::Position::Specific(point) => point,
-        _ => Point::ORIGIN,
-    };
-    let position = state.hud_position.unwrap_or(default_position);
-
-    vec![
-        window::disable_mouse_passthrough(window_id),
-        window::resize(window_id, hud.size),
-        window::move_to(window_id, position),
-        window::set_level(window_id, window::Level::AlwaysOnTop),
-    ]
+    apply_main_window_settings(
+        state,
+        window_id,
+        app_window::hud_settings(),
+        window::Level::AlwaysOnTop,
+    )
 }
 
 fn push_live_delta(target: &mut String, delta: &str) {
@@ -1198,9 +1323,137 @@ fn queue_finalize_live_session(state: &mut Overlay) -> Task<Message> {
     )
 }
 
+fn open_copilot_view(state: &mut Overlay) -> Task<Message> {
+    if state.is_processing() {
+        state.error = Some(String::from(
+            "Finalize o processamento atual antes de abrir o copiloto.",
+        ));
+        return Task::none();
+    }
+
+    if state.main_view != MainView::Copilot {
+        state.previous_main_view = state.main_view;
+    }
+
+    state.main_view = MainView::Copilot;
+    state.copilot_error = None;
+    state.error = None;
+    state.passthrough_enabled = false;
+
+    state.main_window_id.map_or_else(Task::none, |window_id| {
+        Task::batch(apply_main_window_settings(
+            state,
+            window_id,
+            app_window::copilot_window_settings(),
+            window::Level::AlwaysOnTop,
+        ))
+    })
+}
+
+fn close_copilot_view(state: &mut Overlay) -> Task<Message> {
+    let target = state.previous_main_view;
+    state.main_view = target;
+    state.copilot_busy = false;
+    state.copilot_error = None;
+
+    let Some(window_id) = state.main_window_id else {
+        return Task::none();
+    };
+
+    let tasks = match target {
+        MainView::Hud => apply_main_window_settings(
+            state,
+            window_id,
+            app_window::hud_settings(),
+            window::Level::AlwaysOnTop,
+        ),
+        MainView::Home => apply_main_window_settings(
+            state,
+            window_id,
+            app_window::home_window_settings(),
+            window::Level::Normal,
+        ),
+        MainView::Copilot => apply_main_window_settings(
+            state,
+            window_id,
+            app_window::hud_settings(),
+            window::Level::AlwaysOnTop,
+        ),
+    };
+
+    Task::batch(tasks)
+}
+
+fn apply_main_window_settings(
+    state: &mut Overlay,
+    window_id: window::Id,
+    settings: window::Settings,
+    level: window::Level,
+) -> Vec<Task<Message>> {
+    let position = match settings.position {
+        window::Position::Specific(point) if state.main_view == MainView::Hud => {
+            state.hud_position.unwrap_or(point)
+        }
+        window::Position::Specific(point) => point,
+        _ => Point::ORIGIN,
+    };
+
+    let passthrough_task = if state.main_view == MainView::Hud && state.passthrough_enabled {
+        window::enable_mouse_passthrough(window_id)
+    } else {
+        window::disable_mouse_passthrough(window_id)
+    };
+
+    vec![
+        passthrough_task,
+        window::resize(window_id, settings.size),
+        window::move_to(window_id, position),
+        window::set_level(window_id, level),
+    ]
+}
+
+fn build_copilot_context(state: &Overlay, question: String) -> CopilotContext {
+    let (session_id, session_label, mut transcript_segments) =
+        if state.is_live_transcribing() || !state.live_completed_segments.is_empty() {
+            let mut segments = state.live_completed_segments.clone();
+            if !state.live_partial_transcript.trim().is_empty() {
+                segments.push(state.live_partial_transcript.trim().to_owned());
+            }
+
+            (
+                state.live_session_db_id,
+                Some(String::from("live transcript")),
+                segments,
+            )
+        } else if let Some(session_id) = state.selected_session_id {
+            (
+                Some(session_id),
+                Some(format!("saved session #{session_id}")),
+                state.selected_session_segments.clone(),
+            )
+        } else {
+            (None, None, Vec::new())
+        };
+
+    if !state.copilot_include_transcript {
+        transcript_segments.clear();
+    }
+
+    CopilotContext {
+        mode: state.copilot_mode,
+        question,
+        transcript_segments,
+        session_id,
+        session_label,
+        screenshot: state.copilot_screenshot.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{push_live_delta, resolve_completed_transcript};
+    use super::{build_copilot_context, push_live_delta, resolve_completed_transcript};
+    use crate::app::state::boot;
+    use crate::modules::copilot::domain::CopilotMode;
 
     #[test]
     fn appends_delta_without_double_leading_space() {
@@ -1214,5 +1467,22 @@ mod tests {
     fn falls_back_to_partial_when_completed_is_empty() {
         let transcript = resolve_completed_transcript("item-1", "", Some("item-1"), "partial text");
         assert_eq!(transcript, "partial text");
+    }
+
+    #[test]
+    fn copilot_context_prefers_live_segments() {
+        let (mut state, _task) = boot();
+        state.copilot_mode = CopilotMode::Interview;
+        state.live_completed_segments = vec![String::from("recent segment")];
+        state.selected_session_id = Some(99);
+        state.selected_session_segments = vec![String::from("saved session")];
+
+        let context = build_copilot_context(&state, String::from("help"));
+
+        assert_eq!(context.session_label.as_deref(), Some("live transcript"));
+        assert_eq!(
+            context.transcript_segments,
+            vec![String::from("recent segment")]
+        );
     }
 }

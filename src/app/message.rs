@@ -1,6 +1,8 @@
+use iced::widget::text_editor;
 use iced::{Point, Size, keyboard, window};
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
+use crate::modules::copilot::domain::{CopilotAnswer, CopilotMode, ScreenshotAttachment};
 use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
@@ -21,6 +23,8 @@ pub enum Message {
     // Navigation
     OpenHomeView,
     CloseHomeView,
+    OpenCopilotView,
+    CloseCopilotView,
     SwitchHomeTab(HomeTab),
     // Settings form
     SettingsApiKeyChanged(String),
@@ -29,6 +33,10 @@ pub enum Message {
     SettingsOpenAiRealtimeModelChanged(String),
     SettingsOpenAiRealtimeLanguageChanged(String),
     SettingsOpenAiRealtimeProfileChanged(String),
+    SettingsCopilotModelChanged(String),
+    SettingsCopilotDefaultModeChanged(String),
+    SettingsCopilotAutoIncludeTranscriptChanged(bool),
+    SettingsCopilotSaveHistoryChanged(bool),
     SaveSettings,
     SettingsSaved(Result<AppSettings, String>),
     // OpenAI OAuth
@@ -62,6 +70,16 @@ pub enum Message {
     SessionSelected(i64),
     SessionDetailLoaded(Result<Vec<String>, String>),
     CopySessionTranscript,
+    // Copilot
+    CopilotInputEdited(text_editor::Action),
+    CopilotModeChanged(CopilotMode),
+    CopilotIncludeTranscriptChanged(bool),
+    CaptureCopilotScreenshot,
+    CopilotScreenshotCaptured(Result<ScreenshotAttachment, String>),
+    ClearCopilotScreenshot,
+    SubmitCopilotRequest,
+    CopilotAnswerReceived(Result<CopilotAnswer, String>),
+    CopyCopilotAnswer,
     // Window behavior
     TogglePassthrough,
     Quit,

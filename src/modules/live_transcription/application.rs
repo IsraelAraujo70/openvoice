@@ -114,7 +114,7 @@ pub fn generate_session_title(session_id: i64) -> Result<(i64, String), String> 
         CodexTextRequest {
             model: TITLE_MODEL,
             instructions: TITLE_INSTRUCTIONS,
-            input: &transcript,
+            input: vec![crate::support::openai::codex_responses::CodexInputItem::text(transcript)],
         },
     )?;
     let title = normalize_single_line(&raw_title, TITLE_MAX_CHARS);

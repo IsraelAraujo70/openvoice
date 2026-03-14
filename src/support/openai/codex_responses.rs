@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use reqwest::blocking::Client;
 use serde_json::Value;
 
@@ -19,7 +20,13 @@ pub struct CodexAuth<'a> {
 pub struct CodexTextRequest<'a> {
     pub model: &'a str,
     pub instructions: &'a str,
-    pub input: &'a str,
+    pub input: Vec<CodexInputItem>,
+}
+
+#[derive(Debug, Clone)]
+pub enum CodexInputItem {
+    Text(String),
+    ImageDataUrl(String),
 }
 
 impl CodexResponsesClient {
@@ -77,9 +84,13 @@ fn build_request_body(request: &CodexTextRequest<'_>) -> Value {
         "instructions": request.instructions,
         "input": [{
             "role": "user",
-            "content": request.input
+            "content": build_content_blocks(&request.input)
         }]
     })
+}
+
+fn build_content_blocks(input: &[CodexInputItem]) -> Vec<Value> {
+    input.iter().map(CodexInputItem::to_json).collect()
 }
 
 fn parse_sse_text(body: &str) -> Result<String, String> {
@@ -152,9 +163,40 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
     format!("{truncated}...(truncated)")
 }
 
+impl CodexInputItem {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text(value.into())
+    }
+
+    pub fn image_data_url(mime_type: &str, bytes: &[u8]) -> Self {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Self::ImageDataUrl(format!("data:{mime_type};base64,{encoded}"))
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(value) => Some(value.as_str()),
+            Self::ImageDataUrl(_) => None,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        match self {
+            Self::Text(value) => serde_json::json!({
+                "type": "input_text",
+                "text": value
+            }),
+            Self::ImageDataUrl(value) => serde_json::json!({
+                "type": "input_image",
+                "image_url": value
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_sse_text;
+    use super::{CodexInputItem, CodexTextRequest, build_request_body, parse_sse_text};
 
     #[test]
     fn prefers_done_text_over_deltas() {
@@ -192,5 +234,23 @@ data: [DONE]
         let error = parse_sse_text(body).expect_err("error");
 
         assert!(error.contains("quota"));
+    }
+
+    #[test]
+    fn request_body_supports_multimodal_content() {
+        let body = build_request_body(&CodexTextRequest {
+            model: "gpt-test",
+            instructions: "Do it",
+            input: vec![
+                CodexInputItem::text("Question"),
+                CodexInputItem::image_data_url("image/png", b"png"),
+            ],
+        });
+
+        let content = body["input"][0]["content"]
+            .as_array()
+            .expect("content array");
+        assert_eq!(content[0]["type"], "input_text");
+        assert_eq!(content[1]["type"], "input_image");
     }
 }
