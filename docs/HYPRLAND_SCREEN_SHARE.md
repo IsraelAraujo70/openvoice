@@ -3,6 +3,9 @@
 This branch makes OpenVoice windows expose stable Linux application IDs so Hyprland rules can
 match them reliably.
 
+OpenVoice now also tries to call `hyprctl keyword windowrule 'match:class ..., no_screen_share on'`
+automatically when each window opens.
+
 ## Window classes
 
 By default, the app now opens windows with these IDs:
@@ -30,6 +33,8 @@ hyprctl clients -j | jq '.[] | {class, initialClass, title, initialTitle, xwayla
 OpenVoice should show the IDs above in `class` / `initialClass`.
 
 ## Example rules
+
+If automatic rule injection fails on your setup, keep one of these rules as a fallback.
 
 To hide every OpenVoice window from screen sharing:
 

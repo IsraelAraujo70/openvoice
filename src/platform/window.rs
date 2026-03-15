@@ -124,7 +124,7 @@ fn normalize_application_id_prefix(value: Option<&str>) -> String {
         .to_owned()
 }
 
-fn window_application_id(role: &str) -> String {
+pub fn application_id_for_role(role: &str) -> String {
     compose_application_id(&application_id_prefix(), role)
 }
 
@@ -139,7 +139,7 @@ fn compose_application_id(prefix: &str, role: &str) -> String {
 #[cfg(target_os = "linux")]
 fn platform_specific(role: &str) -> window::settings::PlatformSpecific {
     window::settings::PlatformSpecific {
-        application_id: window_application_id(role),
+        application_id: application_id_for_role(role),
         override_redirect: false,
     }
 }

@@ -45,6 +45,21 @@ pub fn focused_monitor_geometry() -> Option<MonitorGeometry> {
     parse_monitors(&stdout)
 }
 
+pub fn apply_no_screen_share(app_id: &str) -> Result<(), String> {
+    if !is_hyprland_session() {
+        return Ok(());
+    }
+
+    let rule = format!(
+        "match:class ^({})$, no_screen_share on",
+        regex_escape(app_id)
+    );
+
+    run_hyprctl_command(&["-r", "keyword", "windowrule", &rule])?;
+
+    Ok(())
+}
+
 fn run_hyprctl(args: &[&str]) -> Option<String> {
     let output = Command::new("hyprctl").args(args).output().ok()?;
 
@@ -53,6 +68,28 @@ fn run_hyprctl(args: &[&str]) -> Option<String> {
     }
 
     String::from_utf8(output.stdout).ok()
+}
+
+fn run_hyprctl_command(args: &[&str]) -> Result<(), String> {
+    let output = Command::new("hyprctl")
+        .args(args)
+        .output()
+        .map_err(|error| format!("Falha ao executar hyprctl {}: {error}", args.join(" ")))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    Err(format!(
+        "hyprctl {} falhou com status {}: {} {}",
+        args.join(" "),
+        output.status,
+        stdout.trim(),
+        stderr.trim()
+    ))
 }
 
 fn parse_monitors(stdout: &str) -> Option<MonitorGeometry> {
@@ -71,9 +108,25 @@ fn parse_monitors(stdout: &str) -> Option<MonitorGeometry> {
     })
 }
 
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+
+    for ch in value.chars() {
+        match ch {
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+
+    escaped
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MonitorGeometry, parse_monitors};
+    use super::{MonitorGeometry, parse_monitors, regex_escape};
 
     #[test]
     fn parses_focused_monitor() {
@@ -107,6 +160,14 @@ mod tests {
                 x: 0.0,
                 y: 0.0,
             })
+        );
+    }
+
+    #[test]
+    fn escapes_app_id_for_windowrule_regex() {
+        assert_eq!(
+            regex_escape("openvoice.dev(main)"),
+            r"openvoice\.dev\(main\)"
         );
     }
 }

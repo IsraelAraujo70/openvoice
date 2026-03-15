@@ -24,6 +24,7 @@ pub struct Overlay {
     pub subtitle_window_id: Option<window::Id>,
     pub copilot_window_id: Option<window::Id>,
     pub copilot_response_window_id: Option<window::Id>,
+    pub hyprland_rules_installed: HashSet<&'static str>,
 
     // HUD state
     pub passthrough_enabled: bool,
@@ -198,6 +199,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
         subtitle_window_id: None,
         copilot_window_id: None,
         copilot_response_window_id: None,
+        hyprland_rules_installed: HashSet::new(),
         passthrough_enabled: config.start_with_passthrough,
         main_view: MainView::Hud,
         home_tab: HomeTab::Home,

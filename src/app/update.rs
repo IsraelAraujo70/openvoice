@@ -14,6 +14,7 @@ use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
+use crate::platform::hyprland;
 use crate::platform::screenshot as screenshot_platform;
 use crate::platform::window as app_window;
 use iced::keyboard::{self, Key, key::Named};
@@ -49,6 +50,10 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
                 if state.passthrough_enabled {
                     tasks.push(window::enable_mouse_passthrough(id));
+                }
+
+                if state.hyprland_rules_installed.insert("main") {
+                    tasks.push(apply_hyprland_no_screen_share("HUD", "main"));
                 }
 
                 return Task::batch(tasks);
@@ -745,6 +750,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             Task::batch([
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::enable_mouse_passthrough(id),
+                if state.hyprland_rules_installed.insert("subtitle") {
+                    apply_hyprland_no_screen_share("subtitle", "subtitle")
+                } else {
+                    Task::none()
+                },
             ])
         }
 
@@ -754,6 +764,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::disable_mouse_passthrough(id),
                 window::gain_focus(id),
+                if state.hyprland_rules_installed.insert("copilot-overlay") {
+                    apply_hyprland_no_screen_share("copilot", "copilot-overlay")
+                } else {
+                    Task::none()
+                },
             ])
         }
 
@@ -762,7 +777,27 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             Task::batch([
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::disable_mouse_passthrough(id),
+                if state.hyprland_rules_installed.insert("copilot-response") {
+                    apply_hyprland_no_screen_share("copilot-response", "copilot-response")
+                } else {
+                    Task::none()
+                },
             ])
+        }
+
+        Message::HyprlandNoScreenShareApplied(role, result) => {
+            if let Err(error) = result {
+                let message = format!(
+                    "Falha ao registrar no_screen_share da janela {role} no Hyprland: {error}"
+                );
+                eprintln!("[openvoice][hyprland] {message}");
+
+                if state.error.is_none() {
+                    state.error = Some(message);
+                }
+            }
+
+            Task::none()
         }
 
         Message::CloseSubtitleWindow => {
@@ -1854,6 +1889,18 @@ fn apply_main_window_settings(
         window::move_to(window_id, position),
         window::set_level(window_id, level),
     ]
+}
+
+fn apply_hyprland_no_screen_share(
+    role_label: &'static str,
+    role_id: &'static str,
+) -> Task<Message> {
+    let application_id = app_window::application_id_for_role(role_id);
+
+    Task::perform(
+        async move { hyprland::apply_no_screen_share(&application_id) },
+        move |result| Message::HyprlandNoScreenShareApplied(role_label, result),
+    )
 }
 
 fn start_copilot_request(

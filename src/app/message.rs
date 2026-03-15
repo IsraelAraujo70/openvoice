@@ -66,6 +66,7 @@ pub enum Message {
     // Copilot window
     CopilotWindowOpened(window::Id),
     CopilotResponseWindowOpened(window::Id),
+    HyprlandNoScreenShareApplied(&'static str, Result<(), String>),
     // Live transcription persistence
     LiveSessionCreated(Result<i64, String>),
     LiveSessionSegmentsPersisted(Result<usize, String>),
