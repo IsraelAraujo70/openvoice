@@ -261,6 +261,7 @@ pub fn boot() -> (Overlay, Task<Message>) {
 
     // With iced::daemon, we must open the initial window manually.
     let (_, open_hud) = window::open(platform_window::hud_settings());
+    let tasks = vec![open_hud.map(Message::WindowOpened)];
 
-    (state, open_hud.map(Message::WindowOpened))
+    (state, Task::batch(tasks))
 }

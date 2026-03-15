@@ -1,10 +1,8 @@
 # Hyprland Screen Share
 
-This branch makes OpenVoice windows expose stable Linux application IDs so Hyprland rules can
-match them reliably.
+OpenVoice usa o caminho oficial do Hyprland para screen share:
 
-OpenVoice now also tries to call `hyprctl keyword windowrule 'match:class ..., no_screen_share on'`
-automatically when each window opens.
+- `hyprctl keyword windowrule 'match:class ..., no_screen_share on'`
 
 ## Window classes
 
@@ -32,9 +30,9 @@ hyprctl clients -j | jq '.[] | {class, initialClass, title, initialTitle}'
 
 OpenVoice should show the IDs above in `class` / `initialClass`.
 
-## Example rules
+## Example fallback rules
 
-If automatic rule injection fails on your setup, keep one of these rules as a fallback.
+Use uma destas rules como fallback manual no `hyprland.conf`.
 
 To hide every OpenVoice window from screen sharing:
 

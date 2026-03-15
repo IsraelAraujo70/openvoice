@@ -29,8 +29,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::WindowOpened(id) => {
             if state.main_window_id.is_none() {
                 state.main_window_id = Some(id);
-
-                let mut tasks = vec![window::set_level(id, window::Level::AlwaysOnTop)];
+                let mut tasks = vec![];
 
                 if let Some(primary) = state.primary_monitor {
                     let hud = app_window::hud_settings();
@@ -53,7 +52,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
 
                 if state.hyprland_rules_installed.insert("main") {
-                    tasks.push(apply_hyprland_no_screen_share("HUD", "main"));
+                    tasks.push(apply_hyprland_no_screen_share("main", "main"));
                 }
 
                 return Task::batch(tasks);
@@ -127,24 +126,23 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             // Pre-load sessions for the recent sessions summary on the Home tab
             state.sessions_loading = true;
 
-            state.main_window_id.map_or_else(
-                || Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
-                |window_id| {
-                    let settings = app_window::home_window_settings();
-                    let position = match settings.position {
-                        window::Position::Specific(point) => point,
-                        _ => iced::Point::ORIGIN,
-                    };
+            let mut tasks: Vec<Task<Message>> = Vec::new();
 
-                    Task::batch([
-                        window::disable_mouse_passthrough(window_id),
-                        window::resize(window_id, settings.size),
-                        window::move_to(window_id, position),
-                        window::set_level(window_id, window::Level::Normal),
-                        Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
-                    ])
-                },
-            )
+            if let Some(main_id) = state.main_window_id {
+                tasks.extend(apply_main_window_settings(
+                    state,
+                    main_id,
+                    app_window::home_window_settings(),
+                    window::Level::Normal,
+                ));
+            }
+
+            tasks.push(Task::perform(
+                async { db::list_sessions() },
+                Message::SessionsLoaded,
+            ));
+
+            Task::batch(tasks)
         }
 
         Message::OpenCopilotView => open_copilot_view(state),
@@ -155,33 +153,23 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.main_view = MainView::Hud;
             state.error = None;
 
-            state.main_window_id.map_or_else(Task::none, |window_id| {
-                let hud = app_window::hud_settings();
-                let default_position = match hud.position {
-                    window::Position::Specific(point) => point,
-                    _ => Point::ORIGIN,
-                };
-                let position = state.hud_position.unwrap_or(default_position);
-                let passthrough_task = if state.passthrough_enabled {
-                    window::enable_mouse_passthrough(window_id)
-                } else {
-                    window::disable_mouse_passthrough(window_id)
-                };
-
-                Task::batch([
-                    passthrough_task,
-                    window::resize(window_id, hud.size),
-                    window::move_to(window_id, position),
-                    window::set_level(window_id, window::Level::AlwaysOnTop),
-                ])
-            })
+            if let Some(main_id) = state.main_window_id {
+                Task::batch(apply_main_window_settings(
+                    state,
+                    main_id,
+                    app_window::hud_settings(),
+                    window::Level::AlwaysOnTop,
+                ))
+            } else {
+                Task::none()
+            }
         }
 
         Message::SwitchHomeTab(tab) => {
             let reload_sessions = matches!(tab, HomeTab::Sessions);
             let reload_copilot_threads = matches!(tab, HomeTab::Copilot);
 
-            // Close copilot overlay windows if they are open, restoring main window.
+            // Close copilot overlay windows if they are open.
             let copilot_was_open =
                 state.copilot_window_id.is_some() || state.copilot_response_window_id.is_some();
             let mut copilot_close_tasks = Vec::new();
@@ -192,10 +180,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 }
                 if let Some(window_id) = state.copilot_response_window_id.take() {
                     copilot_close_tasks.push(window::close(window_id));
-                }
-                if let Some(main_window_id) = state.main_window_id {
-                    copilot_close_tasks
-                        .push(window::set_mode(main_window_id, window::Mode::Windowed));
                 }
             }
 
@@ -213,17 +197,13 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
 
                 let mut tasks = copilot_close_tasks;
 
-                if let Some(window_id) = state.main_window_id {
-                    let settings = app_window::home_window_settings();
-                    let position = match settings.position {
-                        window::Position::Specific(point) => point,
-                        _ => iced::Point::ORIGIN,
-                    };
-
-                    tasks.push(window::disable_mouse_passthrough(window_id));
-                    tasks.push(window::resize(window_id, settings.size));
-                    tasks.push(window::move_to(window_id, position));
-                    tasks.push(window::set_level(window_id, window::Level::Normal));
+                if let Some(main_id) = state.main_window_id {
+                    tasks.extend(apply_main_window_settings(
+                        state,
+                        main_id,
+                        app_window::home_window_settings(),
+                        window::Level::Normal,
+                    ));
                 }
 
                 if reload_sessions {
@@ -747,53 +727,65 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         // ------------------------------------------------------------------ //
         Message::SubtitleWindowOpened(id) => {
             state.subtitle_window_id = Some(id);
-            Task::batch([
+            let mut tasks = vec![
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::enable_mouse_passthrough(id),
-                if state.hyprland_rules_installed.insert("subtitle") {
-                    apply_hyprland_no_screen_share("subtitle", "subtitle")
-                } else {
-                    Task::none()
-                },
-            ])
+            ];
+
+            if state.hyprland_rules_installed.insert("subtitle") {
+                tasks.push(apply_hyprland_no_screen_share("subtitle", "subtitle"));
+            }
+
+            Task::batch(tasks)
         }
 
         Message::CopilotWindowOpened(id) => {
             state.copilot_window_id = Some(id);
-            Task::batch([
+            let mut tasks = vec![
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::disable_mouse_passthrough(id),
                 window::gain_focus(id),
-                if state.hyprland_rules_installed.insert("copilot-overlay") {
-                    apply_hyprland_no_screen_share("copilot", "copilot-overlay")
-                } else {
-                    Task::none()
-                },
-            ])
+            ];
+
+            if state.hyprland_rules_installed.insert("copilot-overlay") {
+                tasks.push(apply_hyprland_no_screen_share(
+                    "copilot-overlay",
+                    "copilot-overlay",
+                ));
+            }
+
+            Task::batch(tasks)
         }
 
         Message::CopilotResponseWindowOpened(id) => {
             state.copilot_response_window_id = Some(id);
-            Task::batch([
+            let mut tasks = vec![
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::disable_mouse_passthrough(id),
-                if state.hyprland_rules_installed.insert("copilot-response") {
-                    apply_hyprland_no_screen_share("copilot-response", "copilot-response")
-                } else {
-                    Task::none()
-                },
-            ])
+            ];
+
+            if state.hyprland_rules_installed.insert("copilot-response") {
+                tasks.push(apply_hyprland_no_screen_share(
+                    "copilot-response",
+                    "copilot-response",
+                ));
+            }
+
+            Task::batch(tasks)
         }
 
         Message::HyprlandNoScreenShareApplied(role, result) => {
-            if let Err(error) = result {
-                let message = format!(
-                    "Falha ao registrar no_screen_share da janela {role} no Hyprland: {error}"
-                );
-                eprintln!("[openvoice][hyprland] {message}");
+            match result {
+                Ok(()) => {}
+                Err(error) => {
+                    let message = format!(
+                        "Falha ao registrar no_screen_share da janela {role} no Hyprland: {error}"
+                    );
+                    eprintln!("[openvoice][hyprland] {message}");
 
-                if state.error.is_none() {
-                    state.error = Some(message);
+                    if state.error.is_none() {
+                        state.error = Some(message);
+                    }
                 }
             }
 
@@ -1606,24 +1598,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
     }
 }
 
-/// Morph the main window from Home (700x800 Normal) back to HUD (380x96 AlwaysOnTop).
-/// Returns window tasks. Caller should batch these with follow-up actions.
-fn morph_home_to_hud(state: &mut Overlay) -> Vec<Task<Message>> {
-    state.main_view = MainView::Hud;
-    state.error = None;
-
-    let Some(window_id) = state.main_window_id else {
-        return Vec::new();
-    };
-
-    apply_main_window_settings(
-        state,
-        window_id,
-        app_window::hud_settings(),
-        window::Level::AlwaysOnTop,
-    )
-}
-
 fn push_live_delta(target: &mut String, delta: &str) {
     if target.is_empty() {
         target.push_str(delta.trim_start());
@@ -1805,23 +1779,13 @@ fn close_copilot_view(state: &mut Overlay) -> Task<Message> {
         tasks.push(window::close(window_id));
     }
 
-    if let Some(main_window_id) = state.main_window_id {
-        tasks.push(window::set_mode(main_window_id, window::Mode::Windowed));
-        tasks.extend(apply_main_window_settings(
-            state,
-            main_window_id,
-            if state.main_view == MainView::Home {
-                app_window::home_window_settings()
-            } else {
-                app_window::hud_settings()
-            },
-            if state.main_view == MainView::Home {
-                window::Level::Normal
-            } else {
-                window::Level::AlwaysOnTop
-            },
-        ));
-        tasks.push(window::gain_focus(main_window_id));
+    if let Some(main_id) = state.main_window_id {
+        let (settings, level) = match state.main_view {
+            MainView::Hud => (app_window::hud_settings(), window::Level::AlwaysOnTop),
+            MainView::Home => (app_window::home_window_settings(), window::Level::Normal),
+        };
+
+        tasks.extend(apply_main_window_settings(state, main_id, settings, level));
     }
 
     if tasks.is_empty() {
@@ -1843,24 +1807,32 @@ fn prepare_capture_ui(state: &mut Overlay) -> Vec<Task<Message>> {
         if let Some(window_id) = state.copilot_response_window_id.take() {
             tasks.push(window::close(window_id));
         }
-
-        if let Some(main_window_id) = state.main_window_id {
-            tasks.push(window::set_mode(main_window_id, window::Mode::Windowed));
-        }
     }
 
     if state.main_view == MainView::Home {
         tasks.extend(morph_home_to_hud(state));
-    } else if let Some(main_window_id) = state.main_window_id {
-        tasks.extend(apply_main_window_settings(
-            state,
-            main_window_id,
-            app_window::hud_settings(),
-            window::Level::AlwaysOnTop,
-        ));
+    } else if let Some(main_id) = state.main_window_id {
+        tasks.push(window::set_mode(main_id, window::Mode::Windowed));
+        tasks.push(window::set_level(main_id, window::Level::AlwaysOnTop));
     }
 
     tasks
+}
+
+fn morph_home_to_hud(state: &mut Overlay) -> Vec<Task<Message>> {
+    state.main_view = MainView::Hud;
+    state.error = None;
+
+    if let Some(main_id) = state.main_window_id {
+        apply_main_window_settings(
+            state,
+            main_id,
+            app_window::hud_settings(),
+            window::Level::AlwaysOnTop,
+        )
+    } else {
+        Vec::new()
+    }
 }
 
 fn apply_main_window_settings(
@@ -1870,12 +1842,13 @@ fn apply_main_window_settings(
     level: window::Level,
 ) -> Vec<Task<Message>> {
     let position = match settings.position {
-        window::Position::Specific(point) if state.main_view == MainView::Hud => {
-            state.hud_position.unwrap_or(point)
-        }
         window::Position::Specific(point) => point,
-        _ => Point::ORIGIN,
+        _ => state.hud_position.unwrap_or(Point::ORIGIN),
     };
+
+    if state.main_view == MainView::Hud {
+        state.hud_position = Some(position);
+    }
 
     let passthrough_task = if state.main_view == MainView::Hud && state.passthrough_enabled {
         window::enable_mouse_passthrough(window_id)
@@ -1884,10 +1857,13 @@ fn apply_main_window_settings(
     };
 
     vec![
-        passthrough_task,
+        window::set_mode(window_id, window::Mode::Windowed),
+        window::set_resizable(window_id, settings.resizable),
         window::resize(window_id, settings.size),
         window::move_to(window_id, position),
+        passthrough_task,
         window::set_level(window_id, level),
+        window::gain_focus(window_id),
     ]
 }
 

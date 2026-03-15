@@ -18,8 +18,11 @@ pub fn view(state: &Overlay, window_id: window::Id) -> Element<'_, Message> {
         copilot_response::view(state)
     } else if state.copilot_window_id == Some(window_id) {
         copilot::view(state)
-    } else if state.main_view == MainView::Home {
-        home::view(state)
+    } else if state.main_window_id == Some(window_id) {
+        match state.main_view {
+            MainView::Hud => overlay::view(state),
+            MainView::Home => home::view(state),
+        }
     } else {
         overlay::view(state)
     }

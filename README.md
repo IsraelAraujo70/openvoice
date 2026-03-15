@@ -7,6 +7,11 @@ O build agora prioriza `wayland` no `Iced`, com foco operacional em Hyprland.
 No backend Wayland do `winit`, `always-on-top` continua nao sendo garantido, entao
 comportamentos de overlay precisam ser tratados como responsabilidade do compositor.
 
+Para stealth em screen share no Hyprland, o app agora tenta usar um plugin local do compositor
+compilado a partir deste repo. Quando o plugin nao esta disponivel, o OpenVoice volta para o
+fallback oficial do Hyprland com `no_screen_share`, que protege a captura desenhando retangulos
+pretos.
+
 ## Rodar
 
 Cadastre a OpenRouter API key direto no HUD e clique em `Save Settings`.
@@ -45,3 +50,4 @@ OPENVOICE_MOUSE_PASSTHROUGH=0 cargo run
 - o comportamento final de passthrough ainda depende do compositor no Linux
 - o app esta priorizando Hyprland/Wayland, nao multiplos backends Linux ao mesmo tempo
 - `always-on-top` no Wayland nao e garantido por `winit`; integracao com Hyprland continua necessaria
+- no Hyprland, rules antigas de `windowrule no_screen_share` podem continuar ativas na sessao atual ate um `hyprctl reload`

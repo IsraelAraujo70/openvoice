@@ -32,3 +32,10 @@ pub fn save_settings(
     infrastructure::save_settings(&settings)?;
     Ok(settings)
 }
+
+#[allow(dead_code)]
+pub fn persist_settings(settings: AppSettings) -> Result<AppSettings, String> {
+    let normalized = settings.normalized();
+    infrastructure::save_settings(&normalized)?;
+    Ok(normalized)
+}
