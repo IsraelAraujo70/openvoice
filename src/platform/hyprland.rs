@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::{env, process::Command};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MonitorGeometry {
+pub struct FocusedMonitor {
     pub width: f32,
     pub height: f32,
     pub x: f32,
@@ -27,16 +27,7 @@ pub fn is_hyprland_session() -> bool {
             .unwrap_or(false)
 }
 
-pub fn is_wayland_session() -> bool {
-    env::var("XDG_SESSION_TYPE")
-        .ok()
-        .as_deref()
-        .map(|value| value.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || env::var_os("WAYLAND_DISPLAY").is_some()
-}
-
-pub fn focused_monitor_geometry() -> Option<MonitorGeometry> {
+pub fn focused_monitor() -> Option<FocusedMonitor> {
     if !is_hyprland_session() {
         return None;
     }
@@ -92,7 +83,7 @@ fn run_hyprctl_command(args: &[&str]) -> Result<(), String> {
     ))
 }
 
-fn parse_monitors(stdout: &str) -> Option<MonitorGeometry> {
+fn parse_monitors(stdout: &str) -> Option<FocusedMonitor> {
     let monitors: Vec<HyprlandMonitor> = serde_json::from_str(stdout).ok()?;
 
     let focused = monitors
@@ -100,7 +91,7 @@ fn parse_monitors(stdout: &str) -> Option<MonitorGeometry> {
         .find(|monitor| monitor.focused)
         .or_else(|| monitors.first())?;
 
-    Some(MonitorGeometry {
+    Some(FocusedMonitor {
         width: focused.width,
         height: focused.height,
         x: focused.x,
@@ -126,7 +117,7 @@ fn regex_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MonitorGeometry, parse_monitors, regex_escape};
+    use super::{FocusedMonitor, parse_monitors, regex_escape};
 
     #[test]
     fn parses_focused_monitor() {
@@ -137,7 +128,7 @@ mod tests {
 
         assert_eq!(
             parse_monitors(json),
-            Some(MonitorGeometry {
+            Some(FocusedMonitor {
                 width: 1920.0,
                 height: 1080.0,
                 x: 0.0,
@@ -154,7 +145,7 @@ mod tests {
 
         assert_eq!(
             parse_monitors(json),
-            Some(MonitorGeometry {
+            Some(FocusedMonitor {
                 width: 2560.0,
                 height: 1440.0,
                 x: 0.0,

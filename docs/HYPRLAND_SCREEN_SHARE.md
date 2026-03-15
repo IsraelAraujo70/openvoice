@@ -27,7 +27,7 @@ Examples:
 Use:
 
 ```bash
-hyprctl clients -j | jq '.[] | {class, initialClass, title, initialTitle, xwayland}'
+hyprctl clients -j | jq '.[] | {class, initialClass, title, initialTitle}'
 ```
 
 OpenVoice should show the IDs above in `class` / `initialClass`.
@@ -73,5 +73,3 @@ windowrule {
 
 - Hyprland window rules are case-sensitive.
 - On Hyprland, `no_screen_share` is compositor behavior, not an `Iced` feature.
-- OpenVoice now targets the `wayland` backend in `Cargo.toml`, so on Hyprland you should expect
-  these windows to show up as `xwayland: false`.

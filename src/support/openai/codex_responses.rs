@@ -101,6 +101,7 @@ fn build_content_blocks(input: &[CodexInputItem]) -> Vec<Value> {
     input.iter().map(CodexInputItem::to_json).collect()
 }
 
+#[cfg(test)]
 fn parse_sse_text(body: &str) -> Result<String, String> {
     parse_sse_reader(&mut std::io::Cursor::new(body.as_bytes()), &mut |_| {})
 }
@@ -196,13 +197,6 @@ impl CodexInputItem {
     pub fn image_data_url(mime_type: &str, bytes: &[u8]) -> Self {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         Self::ImageDataUrl(format!("data:{mime_type};base64,{encoded}"))
-    }
-
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Self::Text(value) => Some(value.as_str()),
-            Self::ImageDataUrl(_) => None,
-        }
     }
 
     fn to_json(&self) -> Value {

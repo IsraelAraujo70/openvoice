@@ -12,8 +12,9 @@ use crate::modules::live_transcription::application::ActiveLiveTranscription;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::{AppSettings, SettingsForm};
+use crate::platform::monitors;
+use crate::platform::monitors::MonitorGeometry;
 use crate::platform::window as platform_window;
-use crate::platform::window::MonitorGeometry;
 use iced::widget::text_editor;
 use iced::{Point, Task, window};
 use std::collections::HashSet;
@@ -181,7 +182,7 @@ impl OverlayConfig {
 
 pub fn boot() -> (Overlay, Task<Message>) {
     let config = OverlayConfig::from_env();
-    let primary_monitor = platform_window::detect_primary_monitor_geometry();
+    let primary_monitor = monitors::focused_monitor_geometry();
     let (settings, settings_error) = match settings_application::load_settings() {
         Ok(settings) => (settings, None),
         Err(error) => (AppSettings::default(), Some(error)),

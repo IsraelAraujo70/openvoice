@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::modules::auth::domain::{
     CredentialStoreStrategy, OpenAiAuthSnapshot, OpenAiOAuthSession, PendingOpenAiOAuthFlow,
     StoredOpenAiCredentials,
@@ -17,11 +15,6 @@ pub fn load_auth_snapshot() -> Result<OpenAiAuthSnapshot, String> {
         .as_ref()
         .map(|stored| OpenAiAuthSnapshot::from_session(&stored.session))
         .unwrap_or_else(OpenAiAuthSnapshot::signed_out))
-}
-
-pub fn login_with_chatgpt(strategy: CredentialStoreStrategy) -> Result<OpenAiAuthSnapshot, String> {
-    let stored = infrastructure::login_with_chatgpt(strategy)?;
-    Ok(OpenAiAuthSnapshot::from_session(&stored.session))
 }
 
 pub fn start_login(strategy: CredentialStoreStrategy) -> Result<PendingOpenAiOAuthFlow, String> {
