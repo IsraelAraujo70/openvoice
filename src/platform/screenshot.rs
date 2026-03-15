@@ -1,4 +1,5 @@
 use crate::modules::copilot::domain::ScreenshotAttachment;
+use crate::platform::hyprland;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -73,7 +74,7 @@ fn temp_png_path() -> PathBuf {
 fn screenshot_commands(path: &PathBuf) -> Vec<ScreenshotCommand<'static>> {
     let path_string = path.display().to_string();
 
-    if running_wayland() {
+    if hyprland::is_wayland_session() {
         return vec![
             ScreenshotCommand {
                 program: "grim",
@@ -108,13 +109,4 @@ fn screenshot_commands(path: &PathBuf) -> Vec<ScreenshotCommand<'static>> {
             args: vec![path_string],
         },
     ]
-}
-
-fn running_wayland() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .ok()
-        .as_deref()
-        .map(|value| value.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }

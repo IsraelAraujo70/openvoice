@@ -19,7 +19,7 @@ O `spec.md` descreve a realidade implementada neste momento.
 - Rust
 - Iced
 - Linux-first
-- backend preferido no momento: X11 / XWayland
+- backend preferido no momento: Wayland com foco em Hyprland
 - `cpal` para microfone
 - `parec` + `pactl` para system audio
 - `tungstenite` para websocket realtime

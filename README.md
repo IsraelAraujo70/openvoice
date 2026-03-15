@@ -1,10 +1,11 @@
 # OpenVoice
 
-Spike nativo em Rust + Iced para testar overlay fullscreen transparente no Linux
-com tentativa de mouse passthrough.
+Spike nativo em Rust + Iced para testar overlay transparente no Linux
+com foco atual em Hyprland/Wayland.
 
-O build atual foi fixado em `x11` para rodar via XWayland no GNOME/Wayland,
-porque o backend Wayland do `winit` nao implementa `always-on-top`.
+O build agora prioriza `wayland` no `Iced`, com foco operacional em Hyprland.
+No backend Wayland do `winit`, `always-on-top` continua nao sendo garantido, entao
+comportamentos de overlay precisam ser tratados como responsabilidade do compositor.
 
 ## Rodar
 
@@ -31,7 +32,7 @@ OPENVOICE_MOUSE_PASSTHROUGH=0 cargo run
 - janela fullscreen
 - transparente
 - sem decorations
-- always-on-top
+- tentativa de HUD flutuante
 - HUD com `Start Recording` / `Stop Recording`
 - captura do microfone padrao
 - envio de WAV em base64 para o OpenRouter
@@ -42,4 +43,5 @@ OPENVOICE_MOUSE_PASSTHROUGH=0 cargo run
 
 - seleção de monitor ainda não existe neste spike
 - o comportamento final de passthrough ainda depende do compositor no Linux
-- o app esta priorizando `x11`/XWayland, nao o backend Wayland nativo
+- o app esta priorizando Hyprland/Wayland, nao multiplos backends Linux ao mesmo tempo
+- `always-on-top` no Wayland nao e garantido por `winit`; integracao com Hyprland continua necessaria

@@ -4,7 +4,7 @@ use crate::modules::settings::domain::{
     SUPPORTED_OPENAI_REALTIME_LANGUAGES, SUPPORTED_OPENAI_REALTIME_PROFILES,
 };
 use iced::widget::{
-    button, checkbox, column, container, pick_list, row, scrollable, text, text_input, Space,
+    Space, button, checkbox, column, container, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 

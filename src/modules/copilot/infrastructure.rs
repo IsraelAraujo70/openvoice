@@ -2,7 +2,7 @@ use crate::modules::copilot::domain::{
     CopilotMode, CopilotThread, CopilotThreadSummary, CopilotTurn,
 };
 use crate::modules::live_transcription::infrastructure::db;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
     db::ensure_schema(conn)?;

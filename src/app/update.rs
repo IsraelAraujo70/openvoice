@@ -1106,10 +1106,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             state.selected_session_segments.clear();
 
             Task::batch([
-                Task::perform(
-                    async { db::list_sessions() },
-                    Message::SessionsLoaded,
-                ),
+                Task::perform(async { db::list_sessions() }, Message::SessionsLoaded),
                 Task::perform(
                     async move { db::get_session_segments(session_id) },
                     Message::SessionDetailLoaded,
@@ -1735,8 +1732,12 @@ fn open_copilot_view(state: &mut Overlay) -> Task<Message> {
         return Task::batch(tasks);
     }
 
-    let (_, open_copilot) = window::open(app_window::copilot_overlay_window_settings(state.primary_monitor));
-    let (_, open_response) = window::open(app_window::copilot_response_window_settings(state.primary_monitor));
+    let (_, open_copilot) = window::open(app_window::copilot_overlay_window_settings(
+        state.primary_monitor,
+    ));
+    let (_, open_response) = window::open(app_window::copilot_response_window_settings(
+        state.primary_monitor,
+    ));
     let mut tasks = vec![
         open_copilot.map(Message::CopilotWindowOpened),
         open_response.map(Message::CopilotResponseWindowOpened),

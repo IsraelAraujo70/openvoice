@@ -1,6 +1,6 @@
 use crate::app::{Message, Overlay};
 use crate::modules::copilot::domain::{CopilotChatMessage, CopilotRole};
-use iced::widget::{button, column, container, markdown, row, scrollable, text, Space};
+use iced::widget::{Space, button, column, container, markdown, row, scrollable, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Theme};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
