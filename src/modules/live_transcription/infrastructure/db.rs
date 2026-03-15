@@ -84,20 +84,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
 // Write
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
-pub fn save_session(
-    segments: Vec<String>,
-    started_at: String,
-    stopped_at: String,
-    language: Option<String>,
-    model: Option<String>,
-) -> Result<i64, String> {
-    let session_id = create_live_session(started_at, language, model)?;
-    append_live_segments(session_id, 0, segments)?;
-    finalize_live_session(session_id, stopped_at)?;
-    Ok(session_id)
-}
-
 pub fn create_live_session(
     started_at: String,
     language: Option<String>,

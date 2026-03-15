@@ -1,6 +1,6 @@
-use crate::platform::hyprland;
+use crate::platform::monitors::{self, MonitorGeometry};
 use iced::{Point, Size, window};
-use std::{env, process::Command};
+use std::env;
 
 const HUD_WIDTH: f32 = 380.0;
 const HUD_HEIGHT: f32 = 96.0;
@@ -14,14 +14,8 @@ const SUBTITLE_WIDTH: f32 = 860.0;
 const SUBTITLE_HEIGHT: f32 = 80.0;
 const DEFAULT_APPLICATION_ID_PREFIX: &str = "openvoice";
 
-#[derive(Debug, Clone, Copy)]
-pub struct MonitorGeometry {
-    pub size: Size,
-    pub position: Point,
-}
-
 pub fn hud_settings() -> window::Settings {
-    let primary = detect_primary_monitor_geometry();
+    let primary = monitors::focused_monitor_geometry();
 
     window::Settings {
         decorations: false,
@@ -41,7 +35,7 @@ pub fn hud_settings() -> window::Settings {
 }
 
 pub fn home_window_settings() -> window::Settings {
-    let primary = detect_primary_monitor_geometry();
+    let primary = monitors::focused_monitor_geometry();
 
     window::Settings {
         decorations: false,
@@ -220,87 +214,9 @@ fn copilot_response_position(monitor: MonitorGeometry) -> Point {
     )
 }
 
-pub fn detect_primary_monitor_geometry() -> Option<MonitorGeometry> {
-    hyprland::focused_monitor_geometry()
-        .map(|monitor| MonitorGeometry {
-            size: Size::new(monitor.width, monitor.height),
-            position: Point::new(monitor.x, monitor.y),
-        })
-        .or_else(|| {
-            read_xrandr("--listactivemonitors")
-                .and_then(|stdout| parse_xrandr_listactivemonitors(&stdout))
-        })
-        .or_else(|| read_xrandr("--query").and_then(|stdout| parse_xrandr_query_primary(&stdout)))
-}
-
-fn read_xrandr(arg: &str) -> Option<String> {
-    let output = Command::new("xrandr").arg(arg).output().ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    String::from_utf8(output.stdout).ok()
-}
-
-fn parse_xrandr_listactivemonitors(stdout: &str) -> Option<MonitorGeometry> {
-    stdout
-        .lines()
-        .skip(1)
-        .find(|line| line.contains("*"))
-        .and_then(parse_listactivemonitors_line)
-}
-
-fn parse_listactivemonitors_line(line: &str) -> Option<MonitorGeometry> {
-    line.split_whitespace()
-        .find(|token| token.contains('+') && token.contains('x'))
-        .and_then(parse_geometry_token)
-}
-
-fn parse_xrandr_query_primary(stdout: &str) -> Option<MonitorGeometry> {
-    stdout
-        .lines()
-        .find(|line| line.contains(" connected primary "))
-        .and_then(|line| {
-            line.split_whitespace()
-                .find(|token| token.contains('x') && token.contains('+'))
-                .and_then(parse_geometry_token)
-        })
-}
-
-fn parse_geometry_token(token: &str) -> Option<MonitorGeometry> {
-    let (size, position) = token.split_once('+')?;
-    let (width, height) = size.split_once('x')?;
-    let (x, y) = position.split_once('+')?;
-
-    Some(MonitorGeometry {
-        size: Size::new(
-            width.split('/').next()?.parse::<f32>().ok()?,
-            height.split('/').next()?.parse::<f32>().ok()?,
-        ),
-        position: Point::new(x.parse::<f32>().ok()?, y.parse::<f32>().ok()?),
-    })
-}
-
-#[allow(dead_code)]
-pub fn clamp_hud_to_monitor(position: Point, monitor: MonitorGeometry) -> Point {
-    let min_x = monitor.position.x;
-    let min_y = monitor.position.y;
-    let max_x = monitor.position.x + monitor.size.width - HUD_WIDTH;
-    let max_y = monitor.position.y + monitor.size.height - HUD_HEIGHT;
-
-    Point::new(
-        position.x.clamp(min_x, max_x),
-        position.y.clamp(min_y, max_y),
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        Point, Size, compose_application_id, normalize_application_id_prefix, parse_geometry_token,
-        parse_xrandr_listactivemonitors,
-    };
+    use super::{compose_application_id, normalize_application_id_prefix};
 
     #[test]
     fn falls_back_to_default_prefix_when_env_is_missing() {
@@ -321,24 +237,5 @@ mod tests {
             compose_application_id("openvoice", "subtitle"),
             "openvoice-subtitle"
         );
-    }
-
-    #[test]
-    fn parses_listactivemonitors_primary_output() {
-        let geometry = parse_xrandr_listactivemonitors(
-            "Monitors: 3\n 0: +*DP-3 1920/520x1080/320+1360+0  DP-3\n 1: +DP-1 1920/530x1080/300+3280+0  DP-1\n",
-        )
-        .expect("primary monitor geometry");
-
-        assert_eq!(geometry.size, Size::new(1920.0, 1080.0));
-        assert_eq!(geometry.position, Point::new(1360.0, 0.0));
-    }
-
-    #[test]
-    fn parses_raw_geometry_token() {
-        let geometry = parse_geometry_token("1360x765+0+171").expect("geometry");
-
-        assert_eq!(geometry.size, Size::new(1360.0, 765.0));
-        assert_eq!(geometry.position, Point::new(0.0, 171.0));
     }
 }

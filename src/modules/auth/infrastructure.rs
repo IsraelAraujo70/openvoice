@@ -94,14 +94,6 @@ pub fn load_credentials() -> Result<Option<StoredOpenAiCredentials>, String> {
     })
 }
 
-pub fn login_with_chatgpt(
-    strategy: CredentialStoreStrategy,
-) -> Result<StoredOpenAiCredentials, String> {
-    let flow = start_login(strategy)?;
-    let callback_url = wait_for_callback(&flow.flow_id)?;
-    complete_login(&flow.flow_id, &callback_url)
-}
-
 pub fn refresh_session(
     stored: &StoredOpenAiCredentials,
 ) -> Result<StoredOpenAiCredentials, String> {

@@ -82,15 +82,6 @@ pub fn poll_next_event(receiver: SharedReceiver) -> Option<RuntimeEvent> {
     receiver.lock().ok()?.recv().ok()
 }
 
-#[allow(dead_code)]
-pub fn answer_question(
-    settings: &AppSettings,
-    context: CopilotContext,
-    thread_id: Option<i64>,
-) -> Result<CopilotAnswer, String> {
-    answer_question_inner(settings, context, thread_id, |_| {})
-}
-
 fn answer_question_inner(
     settings: &AppSettings,
     context: CopilotContext,
@@ -380,7 +371,9 @@ mod tests {
         };
 
         let items = build_input_items(&context, context.question.as_str(), true, 400, 400);
-        let text = items[0].as_text().expect("text block");
+        let crate::support::openai::codex_responses::CodexInputItem::Text(text) = &items[0] else {
+            panic!("text block");
+        };
 
         assert!(text.contains("Mode: Meeting"));
         assert!(text.contains("Decision made"));
