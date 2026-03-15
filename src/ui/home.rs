@@ -1,6 +1,6 @@
 use crate::app::{HomeTab, Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::format_iso_for_display;
-use crate::ui::{sessions, settings};
+use crate::ui::{copilot, sessions, settings};
 use iced::widget::{Space, button, column, container, row, scrollable, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
@@ -23,6 +23,7 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
 
     let content: Element<'_, Message> = match state.home_tab {
         HomeTab::Home => scrollable(home_content(state)).height(Length::Fill).into(),
+        HomeTab::Copilot => copilot::session_tab_content(state),
         HomeTab::Sessions => sessions::tab_content(state),
         HomeTab::Settings => settings::tab_content(state),
     };
@@ -85,10 +86,10 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
             false,
         ),
         action_card(
-            "Perguntar Algo",
-            "Chat contextual com transcript e screenshot",
+            "Sessao IA",
+            "Historico completo com transcript, markdown e screenshots",
             "Copilot",
-            Some(Message::OpenCopilotView),
+            Some(Message::SwitchHomeTab(HomeTab::Copilot)),
             false,
         ),
     ]
@@ -305,6 +306,7 @@ fn action_card<'a>(
 fn tab_bar(active: HomeTab) -> Element<'static, Message> {
     row![
         tab_button("Inicio", HomeTab::Home, active),
+        tab_button("Copilot", HomeTab::Copilot, active),
         tab_button("Sessoes", HomeTab::Sessions, active),
         tab_button("Configuracoes", HomeTab::Settings, active),
     ]

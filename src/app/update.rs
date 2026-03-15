@@ -1,12 +1,11 @@
 use crate::app::message::Message;
 use crate::app::state::{HomeTab, MainView, Overlay, OverlayPhase};
 use crate::modules::audio::infrastructure::microphone;
+use crate::modules::audio::infrastructure::system as system_audio;
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
 use crate::modules::copilot::application as copilot_application;
-use crate::modules::copilot::domain::{
-    CopilotAnswer, CopilotChatMessage, CopilotContext, CopilotMode, CopilotRole,
-};
+use crate::modules::copilot::domain::{CopilotChatMessage, CopilotContext, CopilotRole};
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
@@ -16,8 +15,8 @@ use crate::modules::settings::application as settings_application;
 use crate::modules::settings::domain::SettingsForm;
 use crate::platform::screenshot as screenshot_platform;
 use crate::platform::window as app_window;
-use iced::widget::text_editor;
 use iced::keyboard::{self, Key, key::Named};
+use iced::widget::text_editor;
 use iced::{Point, Task, window};
 
 pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
@@ -62,9 +61,11 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             // Secondary windows (subtitle) just close themselves.
             if state.main_window_id == Some(id) {
                 Task::done(Message::Quit)
+            } else if state.copilot_window_id == Some(id) {
+                Task::done(Message::CloseCopilotView)
+            } else if state.copilot_response_window_id == Some(id) {
+                Task::none()
             } else {
-                // subtitle has no decorations so this shouldn't fire,
-                // but handle gracefully anyway.
                 Task::none()
             }
         }
@@ -75,7 +76,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         Message::StartDrag => state.main_window_id.map_or_else(Task::none, window::drag),
 
         Message::WindowMoved(position) => {
-            if state.main_view == MainView::Home {
+            if state.main_view != MainView::Hud {
                 return Task::none();
             }
 
@@ -90,9 +91,6 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             keyboard::Event::KeyPressed {
                 key, physical_key, ..
             } => match key.as_ref() {
-                Key::Named(Named::Escape) if state.main_view == MainView::Copilot => {
-                    Task::done(Message::CloseCopilotView)
-                }
                 Key::Named(Named::Escape) if state.main_view == MainView::Home => {
                     Task::done(Message::CloseHomeView)
                 }
@@ -174,8 +172,9 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         }
 
         Message::SwitchHomeTab(tab) => {
-            let needs_open = state.main_view == MainView::Hud;
+            let needs_open = state.main_view != MainView::Home;
             let reload_sessions = matches!(tab, HomeTab::Sessions);
+            let reload_copilot_threads = matches!(tab, HomeTab::Copilot);
 
             if needs_open {
                 if state.is_recording() || state.is_processing() {
@@ -210,6 +209,14 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                     ));
                 }
 
+                if reload_copilot_threads {
+                    state.copilot_threads_loading = true;
+                    tasks.push(Task::perform(
+                        async { copilot_application::list_saved_threads() },
+                        Message::CopilotThreadsLoaded,
+                    ));
+                }
+
                 Task::batch(tasks)
             } else {
                 state.home_tab = tab;
@@ -217,6 +224,12 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 if reload_sessions {
                     state.sessions_loading = true;
                     Task::perform(async { db::list_sessions() }, Message::SessionsLoaded)
+                } else if reload_copilot_threads {
+                    state.copilot_threads_loading = true;
+                    Task::perform(
+                        async { copilot_application::list_saved_threads() },
+                        Message::CopilotThreadsLoaded,
+                    )
                 } else {
                     Task::none()
                 }
@@ -488,11 +501,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
 
             // Auto-close Home → HUD before starting dictation
-            let mut morph_tasks = if state.main_view == MainView::Home {
-                morph_home_to_hud(state)
-            } else {
-                Vec::new()
-            };
+            let mut morph_tasks = prepare_capture_ui(state);
 
             match microphone::start_default_recording() {
                 Ok(recorder) => {
@@ -612,11 +621,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
 
             // Auto-close Home → HUD before starting realtime
-            let mut tasks: Vec<Task<Message>> = if state.main_view == MainView::Home {
-                morph_home_to_hud(state)
-            } else {
-                Vec::new()
-            };
+            let mut tasks: Vec<Task<Message>> = prepare_capture_ui(state);
 
             match live_transcription_application::start_live_transcription(&state.settings) {
                 Ok(session) => {
@@ -709,6 +714,23 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             Task::batch([
                 window::set_level(id, window::Level::AlwaysOnTop),
                 window::enable_mouse_passthrough(id),
+            ])
+        }
+
+        Message::CopilotWindowOpened(id) => {
+            state.copilot_window_id = Some(id);
+            Task::batch([
+                window::set_level(id, window::Level::AlwaysOnTop),
+                window::disable_mouse_passthrough(id),
+                window::gain_focus(id),
+            ])
+        }
+
+        Message::CopilotResponseWindowOpened(id) => {
+            state.copilot_response_window_id = Some(id);
+            Task::batch([
+                window::set_level(id, window::Level::AlwaysOnTop),
+                window::disable_mouse_passthrough(id),
             ])
         }
 
@@ -1079,18 +1101,88 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             if state.copilot_mode != mode {
                 state.copilot_mode = mode;
                 state.copilot_thread_id = None;
+                state.selected_copilot_thread_id = None;
+                state.copilot_stream = None;
                 state.copilot_messages.clear();
                 state.copilot_error = None;
-                if state.main_view == MainView::Copilot {
-                    return resize_copilot_window(state);
-                }
             }
             Task::none()
         }
-        Message::CopilotIncludeTranscriptChanged(value) => {
-            state.copilot_include_transcript = value;
-            Task::none()
+        Message::StartCopilotListen => {
+            if state.copilot_busy || state.is_copilot_listening() {
+                return Task::none();
+            }
+
+            match system_audio::start_default_recording() {
+                Ok(recorder) => {
+                    state.copilot_listen_recorder = Some(recorder);
+                    state.copilot_error = None;
+                    Task::none()
+                }
+                Err(error) => {
+                    state.copilot_error = Some(error);
+                    Task::none()
+                }
+            }
         }
+        Message::StopCopilotListen => {
+            let Some(recorder) = state.copilot_listen_recorder.take() else {
+                return Task::none();
+            };
+
+            let Ok(config) = DictationConfig::from_settings(&state.settings) else {
+                state.copilot_error = Some(String::from(
+                    "Cadastre e salve a OpenRouter API key para usar o Listen.",
+                ));
+                return Task::none();
+            };
+
+            match recorder.finish() {
+                Ok(track) => {
+                    state.copilot_busy = true;
+                    state.copilot_error = None;
+
+                    Task::perform(
+                        async move {
+                            dictation_application::transcribe_capture(config, track.audio)
+                                .map(|output| output.transcript)
+                        },
+                        Message::CopilotListenTranscribed,
+                    )
+                }
+                Err(error) => {
+                    state.copilot_error = Some(error);
+                    Task::none()
+                }
+            }
+        }
+        Message::CopilotListenTranscribed(result) => match result {
+            Ok(transcript) => {
+                let heard = transcript.trim().to_owned();
+                if heard.is_empty() {
+                    state.copilot_busy = false;
+                    state.copilot_error = Some(String::from(
+                        "Nao consegui extrair fala util do audio capturado.",
+                    ));
+                    return Task::none();
+                }
+
+                start_copilot_request(
+                    state,
+                    String::from(
+                        "Analyze the recent desktop audio transcript, identify what was asked or requested, and draft the most useful direct response.",
+                    ),
+                    heard,
+                    vec![transcript],
+                    true,
+                )
+            }
+            Err(error) => {
+                state.copilot_busy = false;
+                state.copilot_error = Some(error);
+                Task::none()
+            }
+        },
         Message::CaptureCopilotScreenshot => {
             if state.copilot_busy {
                 return Task::none();
@@ -1132,45 +1224,159 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
 
             let question = state.copilot_input.text();
-            if question.trim().is_empty() {
+            if question.trim().is_empty() && state.copilot_screenshot.is_none() {
                 state.copilot_error = Some(String::from(
-                    "Escreva uma pergunta antes de chamar o copiloto.",
+                    "Escreva uma pergunta ou anexe um screenshot antes de chamar o copiloto.",
                 ));
                 return Task::none();
             }
 
-            state.copilot_busy = true;
-            state.copilot_error = None;
-            state
-                .copilot_messages
-                .push(CopilotChatMessage::user(question.trim().to_owned()));
-
-            let settings = state.settings.clone();
-            let context = build_copilot_context(state, question);
-            let thread_id = state.copilot_thread_id;
-            state.copilot_input = text_editor::Content::new();
-
-            Task::perform(
-                async move { copilot_application::answer_question(&settings, context, thread_id) },
-                Message::CopilotAnswerReceived,
+            start_copilot_request(
+                state,
+                question.clone(),
+                question.trim().to_owned(),
+                Vec::new(),
+                false,
             )
         }
-        Message::CopilotAnswerReceived(result) => {
-            state.copilot_busy = false;
+        Message::CopilotStreamStarted(result) => match result {
+            Ok(stream) => {
+                let receiver = stream.receiver();
+                state.copilot_stream = Some(stream);
+                Task::perform(
+                    async move { copilot_application::poll_next_event(receiver) },
+                    Message::CopilotStreamEventReceived,
+                )
+            }
+            Err(error) => {
+                state.copilot_busy = false;
+                state.copilot_stream = None;
+                clear_pending_copilot_placeholder(state);
+                state.copilot_error = Some(error);
+                Task::none()
+            }
+        },
+        Message::CopilotStreamEventReceived(event) => {
+            let Some(event) = event else {
+                state.copilot_busy = false;
+                state.copilot_stream = None;
+                return Task::none();
+            };
 
-            match result {
-                Ok(CopilotAnswer { answer, thread_id }) => {
-                    state
-                        .copilot_messages
-                        .push(CopilotChatMessage::assistant(answer));
-                    state.copilot_thread_id = thread_id;
-                    state.copilot_error = None;
+            match event {
+                copilot_application::RuntimeEvent::Delta(delta) => {
+                    if let Some(message) = state.copilot_messages.iter_mut().rev().find(|message| {
+                        message.role == CopilotRole::Assistant && message.is_streaming
+                    }) {
+                        message.append_delta(&delta);
+                    }
                 }
-                Err(error) => {
+                copilot_application::RuntimeEvent::Completed { answer, thread_id } => {
+                    state.copilot_busy = false;
+                    state.copilot_stream = None;
+                    state.copilot_thread_id = thread_id;
+                    state.selected_copilot_thread_id = thread_id;
+                    state.copilot_error = None;
+
+                    if let Some(message) = state.copilot_messages.iter_mut().rev().find(|message| {
+                        message.role == CopilotRole::Assistant && message.is_streaming
+                    }) {
+                        message.replace_content(answer, false);
+                    }
+
+                    if state.settings.copilot_save_history {
+                        state.copilot_threads_loading = true;
+                        return Task::perform(
+                            async { copilot_application::list_saved_threads() },
+                            Message::CopilotThreadsLoaded,
+                        );
+                    }
+
+                    return Task::none();
+                }
+                copilot_application::RuntimeEvent::Error(error) => {
+                    state.copilot_busy = false;
+                    state.copilot_stream = None;
+                    clear_pending_copilot_placeholder(state);
                     state.copilot_error = Some(error);
+                    return Task::none();
                 }
             }
 
+            if let Some(stream) = state.copilot_stream.as_ref() {
+                let receiver = stream.receiver();
+                Task::perform(
+                    async move { copilot_application::poll_next_event(receiver) },
+                    Message::CopilotStreamEventReceived,
+                )
+            } else {
+                Task::none()
+            }
+        }
+        Message::CopilotThreadsLoaded(result) => {
+            state.copilot_threads_loading = false;
+
+            match result {
+                Ok(threads) => {
+                    let should_restore_latest = state.copilot_thread_id.is_none()
+                        && state.copilot_messages.is_empty()
+                        && !threads.is_empty();
+
+                    let latest_id = threads.first().map(|thread| thread.id);
+                    state.copilot_threads = threads;
+
+                    if should_restore_latest {
+                        if let Some(thread_id) = latest_id {
+                            state.selected_copilot_thread_id = Some(thread_id);
+                            return Task::perform(
+                                async move { copilot_application::load_saved_thread(thread_id) },
+                                Message::CopilotThreadLoaded,
+                            );
+                        }
+                    }
+
+                    Task::none()
+                }
+                Err(error) => {
+                    state.copilot_error = Some(error);
+                    Task::none()
+                }
+            }
+        }
+        Message::CopilotThreadSelected(thread_id) => {
+            state.selected_copilot_thread_id = Some(thread_id);
+            state.copilot_busy = false;
+            state.copilot_stream = None;
+            state.copilot_error = None;
+
+            Task::perform(
+                async move { copilot_application::load_saved_thread(thread_id) },
+                Message::CopilotThreadLoaded,
+            )
+        }
+        Message::CopilotThreadLoaded(result) => match result {
+            Ok(loaded) => {
+                state.copilot_thread_id = Some(loaded.summary.id);
+                state.selected_copilot_thread_id = Some(loaded.summary.id);
+                state.copilot_mode = loaded.summary.mode;
+                state.copilot_messages = loaded.messages;
+                state.copilot_error = None;
+                Task::none()
+            }
+            Err(error) => {
+                state.copilot_error = Some(error);
+                Task::none()
+            }
+        },
+        Message::NewCopilotThread => {
+            state.copilot_thread_id = None;
+            state.selected_copilot_thread_id = None;
+            state.copilot_stream = None;
+            state.copilot_busy = false;
+            state.copilot_error = None;
+            state.copilot_messages.clear();
+            state.copilot_input = text_editor::Content::new();
+            state.copilot_screenshot = None;
             Task::none()
         }
         Message::CopilotMarkdownLinkClicked(_uri) => Task::none(),
@@ -1233,6 +1439,8 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             if let Some(session) = state.live_transcription.take() {
                 session.stop();
             }
+
+            state.copilot_listen_recorder = None;
 
             iced::exit()
         }
@@ -1351,50 +1559,145 @@ fn open_copilot_view(state: &mut Overlay) -> Task<Message> {
         return Task::none();
     }
 
-    if state.main_view != MainView::Copilot {
-        state.previous_main_view = state.main_view;
-    }
-
-    state.main_view = MainView::Copilot;
     state.copilot_error = None;
     state.error = None;
-    state.passthrough_enabled = false;
 
-    resize_copilot_window(state)
+    if let Some(window_id) = state.copilot_window_id {
+        let settings = app_window::copilot_overlay_window_settings(state.primary_monitor);
+        let position = match settings.position {
+            window::Position::Specific(point) => point,
+            _ => Point::ORIGIN,
+        };
+
+        let mut tasks = vec![
+            window::resize(window_id, settings.size),
+            window::move_to(window_id, position),
+            window::set_level(window_id, window::Level::AlwaysOnTop),
+            window::disable_mouse_passthrough(window_id),
+            window::gain_focus(window_id),
+        ];
+
+        if let Some(main_window_id) = state.main_window_id {
+            tasks.push(window::set_mode(main_window_id, window::Mode::Hidden));
+        }
+
+        if let Some(response_window_id) = state.copilot_response_window_id {
+            let response = app_window::copilot_response_window_settings(state.primary_monitor);
+            let response_position = match response.position {
+                window::Position::Specific(point) => point,
+                _ => Point::ORIGIN,
+            };
+
+            tasks.push(window::resize(response_window_id, response.size));
+            tasks.push(window::move_to(response_window_id, response_position));
+            tasks.push(window::set_level(
+                response_window_id,
+                window::Level::AlwaysOnTop,
+            ));
+            tasks.push(window::disable_mouse_passthrough(response_window_id));
+        }
+
+        if state.copilot_threads.is_empty() && state.settings.copilot_save_history {
+            state.copilot_threads_loading = true;
+            tasks.push(Task::perform(
+                async { copilot_application::list_saved_threads() },
+                Message::CopilotThreadsLoaded,
+            ));
+        }
+
+        return Task::batch(tasks);
+    }
+
+    let (_, open_copilot) = window::open(app_window::copilot_overlay_window_settings(state.primary_monitor));
+    let (_, open_response) = window::open(app_window::copilot_response_window_settings(state.primary_monitor));
+    let mut tasks = vec![
+        open_copilot.map(Message::CopilotWindowOpened),
+        open_response.map(Message::CopilotResponseWindowOpened),
+    ];
+
+    if let Some(main_window_id) = state.main_window_id {
+        tasks.push(window::set_mode(main_window_id, window::Mode::Hidden));
+    }
+
+    if state.copilot_threads.is_empty() && state.settings.copilot_save_history {
+        state.copilot_threads_loading = true;
+        tasks.push(Task::perform(
+            async { copilot_application::list_saved_threads() },
+            Message::CopilotThreadsLoaded,
+        ));
+    }
+
+    Task::batch(tasks)
 }
 
 fn close_copilot_view(state: &mut Overlay) -> Task<Message> {
-    let target = state.previous_main_view;
-    state.main_view = target;
-    state.copilot_busy = false;
-    state.copilot_error = None;
+    state.copilot_listen_recorder = None;
+    let mut tasks = Vec::new();
 
-    let Some(window_id) = state.main_window_id else {
-        return Task::none();
-    };
+    if let Some(window_id) = state.copilot_window_id.take() {
+        tasks.push(window::close(window_id));
+    }
 
-    let tasks = match target {
-        MainView::Hud => apply_main_window_settings(
+    if let Some(window_id) = state.copilot_response_window_id.take() {
+        tasks.push(window::close(window_id));
+    }
+
+    if let Some(main_window_id) = state.main_window_id {
+        tasks.push(window::set_mode(main_window_id, window::Mode::Windowed));
+        tasks.extend(apply_main_window_settings(
             state,
-            window_id,
+            main_window_id,
+            if state.main_view == MainView::Home {
+                app_window::home_window_settings()
+            } else {
+                app_window::hud_settings()
+            },
+            if state.main_view == MainView::Home {
+                window::Level::Normal
+            } else {
+                window::Level::AlwaysOnTop
+            },
+        ));
+        tasks.push(window::gain_focus(main_window_id));
+    }
+
+    if tasks.is_empty() {
+        Task::none()
+    } else {
+        Task::batch(tasks)
+    }
+}
+
+fn prepare_capture_ui(state: &mut Overlay) -> Vec<Task<Message>> {
+    let mut tasks = Vec::new();
+    state.copilot_listen_recorder = None;
+
+    if state.copilot_window_id.is_some() || state.copilot_response_window_id.is_some() {
+        if let Some(window_id) = state.copilot_window_id.take() {
+            tasks.push(window::close(window_id));
+        }
+
+        if let Some(window_id) = state.copilot_response_window_id.take() {
+            tasks.push(window::close(window_id));
+        }
+
+        if let Some(main_window_id) = state.main_window_id {
+            tasks.push(window::set_mode(main_window_id, window::Mode::Windowed));
+        }
+    }
+
+    if state.main_view == MainView::Home {
+        tasks.extend(morph_home_to_hud(state));
+    } else if let Some(main_window_id) = state.main_window_id {
+        tasks.extend(apply_main_window_settings(
+            state,
+            main_window_id,
             app_window::hud_settings(),
             window::Level::AlwaysOnTop,
-        ),
-        MainView::Home => apply_main_window_settings(
-            state,
-            window_id,
-            app_window::home_window_settings(),
-            window::Level::Normal,
-        ),
-        MainView::Copilot => apply_main_window_settings(
-            state,
-            window_id,
-            app_window::hud_settings(),
-            window::Level::AlwaysOnTop,
-        ),
-    };
+        ));
+    }
 
-    Task::batch(tasks)
+    tasks
 }
 
 fn apply_main_window_settings(
@@ -1425,24 +1728,44 @@ fn apply_main_window_settings(
     ]
 }
 
-fn resize_copilot_window(state: &mut Overlay) -> Task<Message> {
-    state.main_window_id.map_or_else(Task::none, |window_id| {
-        let settings = if state.copilot_mode == CopilotMode::Meeting {
-            app_window::copilot_compact_window_settings()
-        } else {
-            app_window::copilot_chat_window_settings()
-        };
+fn start_copilot_request(
+    state: &mut Overlay,
+    question: String,
+    display_user_message: String,
+    extra_transcript_segments: Vec<String>,
+    force_transcript_context: bool,
+) -> Task<Message> {
+    let settings = state.settings.clone();
+    let context = build_copilot_context(
+        state,
+        question,
+        extra_transcript_segments,
+        force_transcript_context,
+    );
+    let thread_id = state.copilot_thread_id;
 
-        Task::batch(apply_main_window_settings(
-            state,
-            window_id,
-            settings,
-            window::Level::AlwaysOnTop,
-        ))
-    })
+    state.copilot_busy = true;
+    state.copilot_error = None;
+    state
+        .copilot_messages
+        .push(CopilotChatMessage::user(display_user_message));
+    state
+        .copilot_messages
+        .push(CopilotChatMessage::assistant_streaming());
+    state.copilot_input = text_editor::Content::new();
+
+    Task::perform(
+        async move { copilot_application::start_answer_stream(settings, context, thread_id) },
+        Message::CopilotStreamStarted,
+    )
 }
 
-fn build_copilot_context(state: &Overlay, question: String) -> CopilotContext {
+fn build_copilot_context(
+    state: &Overlay,
+    question: String,
+    extra_transcript_segments: Vec<String>,
+    force_transcript_context: bool,
+) -> CopilotContext {
     let (session_id, session_label, mut transcript_segments) =
         if state.is_live_transcribing() || !state.live_completed_segments.is_empty() {
             let mut segments = state.live_completed_segments.clone();
@@ -1465,17 +1788,58 @@ fn build_copilot_context(state: &Overlay, question: String) -> CopilotContext {
             (None, None, Vec::new())
         };
 
+    let extra_transcript_segments = extra_transcript_segments
+        .into_iter()
+        .filter(|segment| !segment.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    transcript_segments.extend(extra_transcript_segments.clone());
+
     if !state.copilot_include_transcript {
-        transcript_segments.clear();
+        transcript_segments = if force_transcript_context {
+            extra_transcript_segments
+        } else {
+            Vec::new()
+        };
     }
 
     CopilotContext {
         mode: state.copilot_mode,
         question,
+        history_messages: state
+            .copilot_messages
+            .iter()
+            .filter_map(|message| match message.role {
+                CopilotRole::User if !message.content.trim().is_empty() => {
+                    Some(crate::modules::copilot::domain::CopilotHistoryMessage {
+                        role: CopilotRole::User,
+                        content: message.content.clone(),
+                    })
+                }
+                CopilotRole::Assistant
+                    if !message.content.trim().is_empty() && !message.is_streaming =>
+                {
+                    Some(crate::modules::copilot::domain::CopilotHistoryMessage {
+                        role: CopilotRole::Assistant,
+                        content: message.content.clone(),
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
         transcript_segments,
         session_id,
         session_label,
         screenshot: state.copilot_screenshot.clone(),
+    }
+}
+
+fn clear_pending_copilot_placeholder(state: &mut Overlay) {
+    if matches!(
+        state.copilot_messages.last(),
+        Some(message) if message.role == CopilotRole::Assistant && message.is_streaming
+    ) {
+        state.copilot_messages.pop();
     }
 }
 
@@ -1507,7 +1871,7 @@ mod tests {
         state.selected_session_id = Some(99);
         state.selected_session_segments = vec![String::from("saved session")];
 
-        let context = build_copilot_context(&state, String::from("help"));
+        let context = build_copilot_context(&state, String::from("help"), Vec::new(), false);
 
         assert_eq!(context.session_label.as_deref(), Some("live transcript"));
         assert_eq!(

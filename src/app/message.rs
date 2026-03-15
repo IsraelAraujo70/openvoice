@@ -1,9 +1,12 @@
+use iced::widget::markdown;
 use iced::widget::text_editor;
 use iced::{Point, Size, keyboard, window};
-use iced::widget::markdown;
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
-use crate::modules::copilot::domain::{CopilotAnswer, CopilotMode, ScreenshotAttachment};
+use crate::modules::copilot::application::{
+    ActiveCopilotStream, LoadedCopilotThread, RuntimeEvent as CopilotRuntimeEvent,
+};
+use crate::modules::copilot::domain::{CopilotMode, CopilotThreadSummary, ScreenshotAttachment};
 use crate::modules::dictation::domain::DictationOutput;
 use crate::modules::live_transcription::domain::RuntimeEvent;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
@@ -60,6 +63,9 @@ pub enum Message {
     // Subtitle window
     SubtitleWindowOpened(window::Id),
     CloseSubtitleWindow,
+    // Copilot window
+    CopilotWindowOpened(window::Id),
+    CopilotResponseWindowOpened(window::Id),
     // Live transcription persistence
     LiveSessionCreated(Result<i64, String>),
     LiveSessionSegmentsPersisted(Result<usize, String>),
@@ -74,12 +80,19 @@ pub enum Message {
     // Copilot
     CopilotInputEdited(text_editor::Action),
     CopilotModeChanged(CopilotMode),
-    CopilotIncludeTranscriptChanged(bool),
+    StartCopilotListen,
+    StopCopilotListen,
+    CopilotListenTranscribed(Result<String, String>),
     CaptureCopilotScreenshot,
     CopilotScreenshotCaptured(Result<ScreenshotAttachment, String>),
     ClearCopilotScreenshot,
     SubmitCopilotRequest,
-    CopilotAnswerReceived(Result<CopilotAnswer, String>),
+    CopilotStreamStarted(Result<ActiveCopilotStream, String>),
+    CopilotStreamEventReceived(Option<CopilotRuntimeEvent>),
+    CopilotThreadsLoaded(Result<Vec<CopilotThreadSummary>, String>),
+    CopilotThreadSelected(i64),
+    CopilotThreadLoaded(Result<LoadedCopilotThread, String>),
+    NewCopilotThread,
     CopilotMarkdownLinkClicked(markdown::Uri),
     CopyCopilotAnswer,
     // Window behavior

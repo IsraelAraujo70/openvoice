@@ -173,9 +173,12 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                 )
                 .placeholder("Default copilot mode"),
                 checkbox(state.settings_form.copilot_auto_include_transcript)
-                    .label("Include transcript by default")
+                    .label("Include transcript context by default")
                     .on_toggle(Message::SettingsCopilotAutoIncludeTranscriptChanged)
                     .text_size(13),
+                text("O copiloto pode incluir transcript contextual quando essa opcao estiver ligada.")
+                    .size(13)
+                    .color(Color::from_rgba8(148, 163, 184, 0.88)),
                 checkbox(state.settings_form.copilot_save_history)
                     .label("Save copilot history locally")
                     .on_toggle(Message::SettingsCopilotSaveHistoryChanged)
@@ -231,7 +234,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                     if state.settings.copilot_auto_include_transcript {
                         "included by default"
                     } else {
-                        "manual only"
+                        "manual / listen only"
                     },
                 ),
                 status_row(

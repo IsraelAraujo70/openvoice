@@ -1,4 +1,6 @@
-use crate::modules::copilot::domain::{CopilotMode, CopilotThread, CopilotTurn};
+use crate::modules::copilot::domain::{
+    CopilotMode, CopilotThread, CopilotThreadSummary, CopilotTurn,
+};
 use crate::modules::live_transcription::infrastructure::db;
 use rusqlite::{Connection, params};
 
@@ -127,6 +129,89 @@ pub fn ensure_thread(
         Some(id) => Ok(id),
         None => create_thread(session_id, mode).map(|thread| thread.id),
     }
+}
+
+pub fn list_threads() -> Result<Vec<CopilotThreadSummary>, String> {
+    let conn = db::open_db()?;
+    ensure_schema(&conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                t.id,
+                t.session_id,
+                t.mode,
+                t.created_at,
+                COUNT(turns.id) AS turn_count,
+                COALESCE(
+                    (
+                        SELECT question
+                        FROM cp_turns
+                        WHERE thread_id = t.id
+                        ORDER BY id DESC
+                        LIMIT 1
+                    ),
+                    ''
+                ) AS last_preview
+             FROM cp_threads t
+             LEFT JOIN cp_turns turns ON turns.thread_id = t.id
+             GROUP BY t.id, t.session_id, t.mode, t.created_at
+             ORDER BY COALESCE(MAX(turns.created_at), t.created_at) DESC, t.id DESC",
+        )
+        .map_err(|error| {
+            format!("Nao consegui preparar consulta de threads do copilot: {error}")
+        })?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let mode_code: String = row.get(2)?;
+
+            Ok(CopilotThreadSummary {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                mode: CopilotMode::from_code(&mode_code),
+                created_at: row.get(3)?,
+                turn_count: row.get::<_, i64>(4)?.max(0) as usize,
+                last_preview: row.get(5)?,
+            })
+        })
+        .map_err(|error| format!("Nao consegui listar threads do copilot: {error}"))?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Nao consegui ler threads do copilot: {error}"))
+}
+
+pub fn load_turns(thread_id: i64) -> Result<Vec<CopilotTurn>, String> {
+    let conn = db::open_db()?;
+    ensure_schema(&conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, thread_id, mode, question, answer, screenshot_mime, screenshot_bytes, created_at
+             FROM cp_turns
+             WHERE thread_id = ?1
+             ORDER BY id ASC",
+        )
+        .map_err(|error| format!("Nao consegui preparar leitura de turnos do copilot: {error}"))?;
+
+    let rows = stmt
+        .query_map(params![thread_id], |row| {
+            let mode_code: String = row.get(2)?;
+            Ok(CopilotTurn {
+                id: row.get(0)?,
+                thread_id: row.get(1)?,
+                mode: CopilotMode::from_code(&mode_code),
+                question: row.get(3)?,
+                answer: row.get(4)?,
+                screenshot_mime: row.get(5)?,
+                screenshot_bytes: row.get::<_, i64>(6)?.max(0) as usize,
+                created_at: row.get(7)?,
+            })
+        })
+        .map_err(|error| format!("Nao consegui consultar turnos do copilot: {error}"))?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Nao consegui ler turnos do copilot: {error}"))
 }
 
 #[cfg(test)]

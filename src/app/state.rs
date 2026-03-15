@@ -1,8 +1,13 @@
 use crate::app::message::Message;
-use crate::modules::audio::infrastructure::microphone::Recorder;
+use crate::modules::audio::infrastructure::{
+    microphone::Recorder as MicrophoneRecorder, system::Recorder as SystemRecorder,
+};
 use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::PendingOpenAiOAuthFlow;
-use crate::modules::copilot::domain::{CopilotChatMessage, CopilotMode, ScreenshotAttachment};
+use crate::modules::copilot::application::ActiveCopilotStream;
+use crate::modules::copilot::domain::{
+    CopilotChatMessage, CopilotMode, CopilotThreadSummary, ScreenshotAttachment,
+};
 use crate::modules::live_transcription::application::ActiveLiveTranscription;
 use crate::modules::live_transcription::infrastructure::db::SessionSummary;
 use crate::modules::settings::application as settings_application;
@@ -17,11 +22,12 @@ pub struct Overlay {
     // Window IDs
     pub main_window_id: Option<window::Id>,
     pub subtitle_window_id: Option<window::Id>,
+    pub copilot_window_id: Option<window::Id>,
+    pub copilot_response_window_id: Option<window::Id>,
 
     // HUD state
     pub passthrough_enabled: bool,
     pub main_view: MainView,
-    pub previous_main_view: MainView,
     pub home_tab: HomeTab,
     pub primary_monitor: Option<MonitorGeometry>,
     pub hud_position: Option<Point>,
@@ -44,7 +50,7 @@ pub struct Overlay {
     pub openai_account_label: Option<String>,
 
     // Dictation (mic recording)
-    pub recorder: Option<Recorder>,
+    pub recorder: Option<MicrophoneRecorder>,
 
     // Live transcription (system audio streaming)
     pub live_transcription: Option<ActiveLiveTranscription>,
@@ -76,10 +82,15 @@ pub struct Overlay {
     pub copilot_mode: CopilotMode,
     pub copilot_input: text_editor::Content,
     pub copilot_busy: bool,
+    pub copilot_stream: Option<ActiveCopilotStream>,
     pub copilot_error: Option<String>,
     pub copilot_messages: Vec<CopilotChatMessage>,
     pub copilot_thread_id: Option<i64>,
+    pub selected_copilot_thread_id: Option<i64>,
+    pub copilot_threads: Vec<CopilotThreadSummary>,
+    pub copilot_threads_loading: bool,
     pub copilot_include_transcript: bool,
+    pub copilot_listen_recorder: Option<SystemRecorder>,
     pub copilot_screenshot: Option<ScreenshotAttachment>,
 }
 
@@ -102,6 +113,10 @@ impl Overlay {
 
     pub fn is_live_transcribing(&self) -> bool {
         self.live_transcription.is_some()
+    }
+
+    pub fn is_copilot_listening(&self) -> bool {
+        self.copilot_listen_recorder.is_some()
     }
 
     pub fn can_start_dictation(&self) -> bool {
@@ -134,12 +149,12 @@ pub enum OverlayPhase {
 pub enum MainView {
     Hud,
     Home,
-    Copilot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeTab {
     Home,
+    Copilot,
     Sessions,
     Settings,
 }
@@ -181,9 +196,10 @@ pub fn boot() -> (Overlay, Task<Message>) {
     let state = Overlay {
         main_window_id: None,
         subtitle_window_id: None,
+        copilot_window_id: None,
+        copilot_response_window_id: None,
         passthrough_enabled: config.start_with_passthrough,
         main_view: MainView::Hud,
-        previous_main_view: MainView::Hud,
         home_tab: HomeTab::Home,
         primary_monitor,
         hud_position: None,
@@ -228,10 +244,15 @@ pub fn boot() -> (Overlay, Task<Message>) {
         copilot_mode,
         copilot_input: text_editor::Content::new(),
         copilot_busy: false,
+        copilot_stream: None,
         copilot_error: None,
         copilot_messages: Vec::new(),
         copilot_thread_id: None,
+        selected_copilot_thread_id: None,
+        copilot_threads: Vec::new(),
+        copilot_threads_loading: false,
         copilot_include_transcript,
+        copilot_listen_recorder: None,
         copilot_screenshot: None,
     };
 

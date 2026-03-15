@@ -1,3 +1,5 @@
+use std::io::{BufRead, BufReader};
+
 use base64::Engine as _;
 use reqwest::blocking::Client;
 use serde_json::Value;
@@ -44,6 +46,15 @@ impl CodexResponsesClient {
         auth: CodexAuth<'_>,
         request: CodexTextRequest<'_>,
     ) -> Result<String, String> {
+        self.generate_text_streaming(auth, request, |_| {})
+    }
+
+    pub fn generate_text_streaming(
+        &self,
+        auth: CodexAuth<'_>,
+        request: CodexTextRequest<'_>,
+        mut on_delta: impl FnMut(&str),
+    ) -> Result<String, String> {
         let body = build_request_body(&request);
 
         let response = self
@@ -68,11 +79,8 @@ impl CodexResponsesClient {
             return Err(format!("Codex Responses retornou status {status}"));
         }
 
-        let body_text = response
-            .text()
-            .map_err(|error| format!("Erro ao ler corpo da resposta SSE: {error}"))?;
-
-        parse_sse_text(&body_text)
+        let mut reader = BufReader::new(response);
+        parse_sse_reader(&mut reader, &mut on_delta)
     }
 }
 
@@ -94,12 +102,28 @@ fn build_content_blocks(input: &[CodexInputItem]) -> Vec<Value> {
 }
 
 fn parse_sse_text(body: &str) -> Result<String, String> {
+    parse_sse_reader(&mut std::io::Cursor::new(body.as_bytes()), &mut |_| {})
+}
+
+fn parse_sse_reader<R: BufRead>(
+    reader: &mut R,
+    on_delta: &mut impl FnMut(&str),
+) -> Result<String, String> {
     let mut accumulated_text = String::new();
     let mut full_text: Option<String> = None;
+    let mut line = String::new();
 
-    for line in body.lines() {
+    loop {
+        line.clear();
+        let bytes_read = reader
+            .read_line(&mut line)
+            .map_err(|error| format!("Erro ao ler corpo da resposta SSE: {error}"))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
         let line = line.trim();
-
         if !line.starts_with("data:") {
             continue;
         }
@@ -132,6 +156,7 @@ fn parse_sse_text(body: &str) -> Result<String, String> {
         if event_type == "response.output_text.delta" {
             if let Some(delta) = parsed.get("delta").and_then(|value| value.as_str()) {
                 accumulated_text.push_str(delta);
+                on_delta(delta);
             }
         }
 

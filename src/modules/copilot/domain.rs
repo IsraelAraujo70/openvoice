@@ -48,6 +48,7 @@ pub struct CopilotChatMessage {
     pub role: CopilotRole,
     pub content: String,
     pub markdown_items: Vec<markdown::Item>,
+    pub is_streaming: bool,
 }
 
 impl CopilotChatMessage {
@@ -56,17 +57,29 @@ impl CopilotChatMessage {
             role: CopilotRole::User,
             content: content.into(),
             markdown_items: Vec::new(),
+            is_streaming: false,
         }
     }
 
-    pub fn assistant(content: impl Into<String>) -> Self {
-        let content = content.into();
-
+    pub fn assistant_streaming() -> Self {
         Self {
             role: CopilotRole::Assistant,
-            markdown_items: markdown::parse(&content).collect(),
-            content,
+            content: String::new(),
+            markdown_items: Vec::new(),
+            is_streaming: true,
         }
+    }
+
+    pub fn replace_content(&mut self, content: impl Into<String>, is_streaming: bool) {
+        self.content = content.into();
+        self.markdown_items = markdown::parse(&self.content).collect();
+        self.is_streaming = is_streaming;
+    }
+
+    pub fn append_delta(&mut self, delta: &str) {
+        self.content.push_str(delta);
+        self.markdown_items = markdown::parse(&self.content).collect();
+        self.is_streaming = true;
     }
 }
 
@@ -80,10 +93,17 @@ pub struct ScreenshotAttachment {
 pub struct CopilotContext {
     pub mode: CopilotMode,
     pub question: String,
+    pub history_messages: Vec<CopilotHistoryMessage>,
     pub transcript_segments: Vec<String>,
     pub session_id: Option<i64>,
     pub session_label: Option<String>,
     pub screenshot: Option<ScreenshotAttachment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CopilotHistoryMessage {
+    pub role: CopilotRole,
+    pub content: String,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +119,16 @@ pub struct CopilotThread {
     pub session_id: Option<i64>,
     pub mode: CopilotMode,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CopilotThreadSummary {
+    pub id: i64,
+    pub session_id: Option<i64>,
+    pub mode: CopilotMode,
+    pub created_at: String,
+    pub turn_count: usize,
+    pub last_preview: String,
 }
 
 #[allow(dead_code)]

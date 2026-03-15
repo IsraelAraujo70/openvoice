@@ -1,14 +1,15 @@
-use iced::{Point, Size, window};
+use iced::{window, Point, Size};
+use serde_json::Value;
 use std::process::Command;
 
 const HUD_WIDTH: f32 = 380.0;
 const HUD_HEIGHT: f32 = 96.0;
 const HOME_WIDTH: f32 = 700.0;
 const HOME_HEIGHT: f32 = 800.0;
-const COPILOT_WIDTH: f32 = 620.0;
-const COPILOT_HEIGHT: f32 = 540.0;
-const COPILOT_COMPACT_WIDTH: f32 = 500.0;
-const COPILOT_COMPACT_HEIGHT: f32 = 260.0;
+const COPILOT_OVERLAY_WIDTH: f32 = 860.0;
+const COPILOT_OVERLAY_HEIGHT: f32 = 268.0;
+const COPILOT_RESPONSE_WIDTH: f32 = 860.0;
+const COPILOT_RESPONSE_HEIGHT: f32 = 360.0;
 const SUBTITLE_WIDTH: f32 = 860.0;
 const SUBTITLE_HEIGHT: f32 = 80.0;
 
@@ -71,39 +72,35 @@ pub fn subtitle_window_settings(primary: Option<MonitorGeometry>) -> window::Set
     }
 }
 
-pub fn copilot_chat_window_settings() -> window::Settings {
-    let primary = detect_primary_monitor_geometry();
-
-    window::Settings {
-        decorations: false,
-        transparent: true,
-        resizable: true,
-        level: window::Level::AlwaysOnTop,
-        size: primary
-            .map(copilot_size)
-            .unwrap_or_else(|| Size::new(COPILOT_WIDTH, COPILOT_HEIGHT)),
-        position: primary
-            .map(|monitor| window::Position::Specific(copilot_position(monitor)))
-            .unwrap_or(window::Position::Specific(Point::new(64.0, 140.0))),
-        exit_on_close_request: false,
-        ..Default::default()
-    }
-}
-
-pub fn copilot_compact_window_settings() -> window::Settings {
-    let primary = detect_primary_monitor_geometry();
-
+pub fn copilot_overlay_window_settings(primary: Option<MonitorGeometry>) -> window::Settings {
     window::Settings {
         decorations: false,
         transparent: true,
         resizable: false,
         level: window::Level::AlwaysOnTop,
         size: primary
-            .map(copilot_compact_size)
-            .unwrap_or_else(|| Size::new(COPILOT_COMPACT_WIDTH, COPILOT_COMPACT_HEIGHT)),
+            .map(copilot_overlay_size)
+            .unwrap_or_else(|| Size::new(COPILOT_OVERLAY_WIDTH, COPILOT_OVERLAY_HEIGHT)),
         position: primary
-            .map(|monitor| window::Position::Specific(copilot_compact_position(monitor)))
-            .unwrap_or(window::Position::Specific(Point::new(64.0, 180.0))),
+            .map(|monitor| window::Position::Specific(copilot_overlay_position(monitor)))
+            .unwrap_or(window::Position::Specific(Point::new(140.0, 720.0))),
+        exit_on_close_request: false,
+        ..Default::default()
+    }
+}
+
+pub fn copilot_response_window_settings(primary: Option<MonitorGeometry>) -> window::Settings {
+    window::Settings {
+        decorations: false,
+        transparent: true,
+        resizable: false,
+        level: window::Level::AlwaysOnTop,
+        size: primary
+            .map(copilot_response_size)
+            .unwrap_or_else(|| Size::new(COPILOT_RESPONSE_WIDTH, COPILOT_RESPONSE_HEIGHT)),
+        position: primary
+            .map(|monitor| window::Position::Specific(copilot_response_position(monitor)))
+            .unwrap_or(window::Position::Specific(Point::new(140.0, 500.0))),
         exit_on_close_request: false,
         ..Default::default()
     }
@@ -147,35 +144,36 @@ fn subtitle_position(monitor: MonitorGeometry) -> Point {
     )
 }
 
-fn copilot_size(monitor: MonitorGeometry) -> Size {
+fn copilot_overlay_size(monitor: MonitorGeometry) -> Size {
     Size::new(
-        COPILOT_WIDTH.min((monitor.size.width - 80.0).max(500.0)),
-        COPILOT_HEIGHT.min((monitor.size.height - 120.0).max(420.0)),
+        COPILOT_OVERLAY_WIDTH.min((monitor.size.width - 96.0).max(560.0)),
+        COPILOT_OVERLAY_HEIGHT.min((monitor.size.height - 140.0).max(220.0)),
     )
 }
 
-fn copilot_position(monitor: MonitorGeometry) -> Point {
-    let size = copilot_size(monitor);
+fn copilot_overlay_position(monitor: MonitorGeometry) -> Point {
+    let size = copilot_overlay_size(monitor);
 
     Point::new(
-        monitor.position.x + (monitor.size.width - size.width - 32.0).max(24.0),
-        monitor.position.y + 108.0,
+        monitor.position.x + ((monitor.size.width - size.width) / 2.0).max(24.0),
+        monitor.position.y + monitor.size.height - size.height - 112.0,
     )
 }
 
-fn copilot_compact_size(monitor: MonitorGeometry) -> Size {
+fn copilot_response_size(monitor: MonitorGeometry) -> Size {
     Size::new(
-        COPILOT_COMPACT_WIDTH.min((monitor.size.width - 48.0).max(420.0)),
-        COPILOT_COMPACT_HEIGHT.min((monitor.size.height - 120.0).max(220.0)),
+        COPILOT_RESPONSE_WIDTH.min((monitor.size.width - 96.0).max(560.0)),
+        COPILOT_RESPONSE_HEIGHT.min((monitor.size.height - 220.0).max(240.0)),
     )
 }
 
-fn copilot_compact_position(monitor: MonitorGeometry) -> Point {
-    let size = copilot_compact_size(monitor);
+fn copilot_response_position(monitor: MonitorGeometry) -> Point {
+    let response = copilot_response_size(monitor);
+    let overlay_pos = copilot_overlay_position(monitor);
 
     Point::new(
-        monitor.position.x + (monitor.size.width - size.width - 24.0).max(16.0),
-        monitor.position.y + monitor.size.height - size.height - 124.0,
+        monitor.position.x + ((monitor.size.width - response.width) / 2.0).max(24.0),
+        (overlay_pos.y - response.height - 16.0).max(monitor.position.y + 48.0),
     )
 }
 
@@ -183,6 +181,40 @@ pub fn detect_primary_monitor_geometry() -> Option<MonitorGeometry> {
     read_xrandr("--listactivemonitors")
         .and_then(|stdout| parse_xrandr_listactivemonitors(&stdout))
         .or_else(|| read_xrandr("--query").and_then(|stdout| parse_xrandr_query_primary(&stdout)))
+        .or_else(detect_hyprctl_monitor)
+}
+
+fn detect_hyprctl_monitor() -> Option<MonitorGeometry> {
+    let output = Command::new("hyprctl")
+        .args(["monitors", "-j"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    parse_hyprctl_monitors(&stdout)
+}
+
+fn parse_hyprctl_monitors(stdout: &str) -> Option<MonitorGeometry> {
+    let monitors: Vec<Value> = serde_json::from_str(stdout).ok()?;
+
+    let focused = monitors
+        .iter()
+        .find(|m| m.get("focused").and_then(Value::as_bool).unwrap_or(false))
+        .or_else(|| monitors.first())?;
+
+    let width = focused.get("width")?.as_f64()? as f32;
+    let height = focused.get("height")?.as_f64()? as f32;
+    let x = focused.get("x")?.as_f64()? as f32;
+    let y = focused.get("y")?.as_f64()? as f32;
+
+    Some(MonitorGeometry {
+        size: Size::new(width, height),
+        position: Point::new(x, y),
+    })
 }
 
 fn read_xrandr(arg: &str) -> Option<String> {
@@ -249,7 +281,9 @@ pub fn clamp_hud_to_monitor(position: Point, monitor: MonitorGeometry) -> Point 
 
 #[cfg(test)]
 mod tests {
-    use super::{Point, Size, parse_geometry_token, parse_xrandr_listactivemonitors};
+    use super::{
+        parse_geometry_token, parse_hyprctl_monitors, parse_xrandr_listactivemonitors, Point, Size,
+    };
 
     #[test]
     fn parses_listactivemonitors_primary_output() {
@@ -268,5 +302,30 @@ mod tests {
 
         assert_eq!(geometry.size, Size::new(1360.0, 765.0));
         assert_eq!(geometry.position, Point::new(0.0, 171.0));
+    }
+
+    #[test]
+    fn parses_hyprctl_monitors_focused() {
+        let json = r#"[
+            {"width":1920,"height":1080,"x":0,"y":0,"focused":true},
+            {"width":1920,"height":1080,"x":-1920,"y":0,"focused":false}
+        ]"#;
+
+        let geometry = parse_hyprctl_monitors(json).expect("focused monitor");
+
+        assert_eq!(geometry.size, Size::new(1920.0, 1080.0));
+        assert_eq!(geometry.position, Point::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn parses_hyprctl_monitors_fallback_to_first() {
+        let json = r#"[
+            {"width":2560,"height":1440,"x":0,"y":0,"focused":false}
+        ]"#;
+
+        let geometry = parse_hyprctl_monitors(json).expect("first monitor");
+
+        assert_eq!(geometry.size, Size::new(2560.0, 1440.0));
+        assert_eq!(geometry.position, Point::new(0.0, 0.0));
     }
 }
