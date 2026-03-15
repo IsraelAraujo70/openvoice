@@ -239,10 +239,11 @@ fn thread_selector(state: &Overlay) -> Element<'_, Message> {
                         .color(Color::WHITE),
                     text(subtitle)
                         .size(11)
-                        .color(Color::from_rgba8(148, 163, 184, 0.72)),
+                        .color(Color::from_rgba8(148, 163, 184, 0.72))
+                        .wrapping(text::Wrapping::None),
                 ]
-                .spacing(4),
-                Space::new().width(Length::Fill),
+                .spacing(4)
+                .width(Length::Fill),
                 button(
                     text("Abrir")
                         .size(10)
