@@ -4,16 +4,16 @@ use crate::modules::settings::domain::{
     SUPPORTED_OPENAI_REALTIME_LANGUAGES, SUPPORTED_OPENAI_REALTIME_PROFILES,
 };
 use iced::widget::{
-    Space, button, checkbox, column, container, pick_list, row, scrollable, text, text_input,
+    button, checkbox, column, container, pick_list, row, scrollable, text, text_input, Space,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
     let save_settings = action_button(
         if state.is_saving_settings {
-            "Saving..."
+            "Salvando..."
         } else {
-            "Save Settings"
+            "Salvar Configuracoes"
         },
         (!state.is_saving_settings).then_some(Message::SaveSettings),
     );
@@ -21,27 +21,27 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
     let openai_auth_action = if state.has_openai_credentials {
         action_button(
             if state.is_openai_authenticating {
-                "Working..."
+                "Processando..."
             } else {
-                "Log out"
+                "Desconectar"
             },
             (!state.is_openai_authenticating).then_some(Message::LogoutOpenAi),
         )
     } else if state.pending_openai_oauth.is_some() {
         action_button(
             if state.is_openai_authenticating {
-                "Waiting for callback..."
+                "Aguardando callback..."
             } else {
-                "OAuth pending"
+                "OAuth pendente"
             },
             None,
         )
     } else {
         action_button(
             if state.is_openai_authenticating {
-                "Signing in..."
+                "Conectando..."
             } else {
-                "Sign in with ChatGPT"
+                "Entrar com ChatGPT"
             },
             (!state.is_openai_authenticating).then_some(Message::StartOpenAiOAuthLogin),
         )
@@ -64,9 +64,9 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                 .padding([12, 14]),
                 action_button(
                     if state.is_openai_authenticating {
-                        "Finishing..."
+                        "Finalizando..."
                     } else {
-                        "Use callback URL"
+                        "Usar callback URL"
                     },
                     (!state.is_openai_authenticating).then_some(Message::SubmitOpenAiOAuthCallback)
                 ),
@@ -93,23 +93,9 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                 .on_input(Message::SettingsApiKeyChanged)
                 .secure(true)
                 .padding([12, 14]),
-                text_input("Model", &state.settings_form.openrouter_model)
+                text_input("Modelo", &state.settings_form.openrouter_model)
                     .on_input(Message::SettingsModelChanged)
                     .padding([12, 14]),
-                row![
-                    save_settings,
-                    state
-                        .settings_note
-                        .as_ref()
-                        .map(|note| {
-                            text(note)
-                                .size(12)
-                                .color(Color::from_rgba8(148, 163, 184, 0.88))
-                        })
-                        .unwrap_or_else(|| text("")),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
             ]
             .spacing(14),
         )
@@ -127,7 +113,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                     .on_input(Message::SettingsOpenAiRealtimeApiKeyChanged)
                     .secure(true)
                     .padding([12, 14]),
-                text_input("Transcription model", &state.settings_form.openai_realtime_model)
+                text_input("Modelo de transcricao", &state.settings_form.openai_realtime_model)
                     .on_input(Message::SettingsOpenAiRealtimeModelChanged)
                     .padding([12, 14]),
                 pick_list(
@@ -139,7 +125,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                         )
                     }
                 )
-                .placeholder("Language"),
+                .placeholder("Idioma"),
                 pick_list(
                     SUPPORTED_OPENAI_REALTIME_PROFILE_OPTIONS,
                     selected_profile_option(&state.settings_form.openai_realtime_profile),
@@ -149,7 +135,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                         )
                     }
                 )
-                .placeholder("Realtime profile"),
+                .placeholder("Perfil realtime"),
             ]
             .spacing(14),
         )
@@ -163,7 +149,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                 )
                 .size(12)
                 .color(Color::from_rgba8(148, 163, 184, 0.88)),
-                text_input("Copilot model", &state.settings_form.copilot_model)
+                text_input("Modelo do copiloto", &state.settings_form.copilot_model)
                     .on_input(Message::SettingsCopilotModelChanged)
                     .padding([12, 14]),
                 pick_list(
@@ -171,16 +157,16 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
                     selected_copilot_mode_option(&state.settings_form.copilot_default_mode),
                     |mode| Message::SettingsCopilotDefaultModeChanged(mode.code().to_owned())
                 )
-                .placeholder("Default copilot mode"),
+                .placeholder("Modo padrao do copiloto"),
                 checkbox(state.settings_form.copilot_auto_include_transcript)
-                    .label("Include transcript context by default")
+                    .label("Incluir contexto de transcript por padrao")
                     .on_toggle(Message::SettingsCopilotAutoIncludeTranscriptChanged)
                     .text_size(13),
                 text("O copiloto pode incluir transcript contextual quando essa opcao estiver ligada.")
                     .size(13)
                     .color(Color::from_rgba8(148, 163, 184, 0.88)),
                 checkbox(state.settings_form.copilot_save_history)
-                    .label("Save copilot history locally")
+                    .label("Salvar historico do copiloto localmente")
                     .on_toggle(Message::SettingsCopilotSaveHistoryChanged)
                     .text_size(13),
             ]
@@ -208,51 +194,66 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
         container(
             column![
                 section_title("Runtime"),
-                status_row("Clipboard", "microphone transcript copied after processing"),
-                status_row("Storage", "settings in ~/.config/openvoice; system capture stays available for a future feature"),
-                status_row("Audio", "dictation uses microphone only in the current HUD flow"),
+                status_row("Clipboard", "transcript copiado apos processamento"),
+                status_row("Armazenamento", "settings em ~/.config/openvoice; captura do sistema disponivel para funcionalidades futuras"),
+                status_row("Audio", "ditado usa apenas o microfone no fluxo HUD atual"),
                 status_row(
-                    "Realtime auth",
+                    "Auth realtime",
                     if state.settings.has_openai_realtime_api_key() {
-                        "configured via API key"
+                        "configurado via API key"
                     } else {
-                        "missing OpenAI API key"
+                        "API key OpenAI ausente"
                     },
                 ),
                 status_row(
                     "ChatGPT OAuth",
                     if state.has_openai_credentials {
-                        "connected for copilot"
+                        "conectado para copiloto"
                     } else {
-                        "not signed in"
+                        "nao conectado"
                     },
                 ),
-                status_row("Copilot model", state.settings.copilot_model.clone()),
-                status_row("Copilot default mode", state.settings.copilot_default_mode.clone()),
+                status_row("Modelo copiloto", state.settings.copilot_model.clone()),
+                status_row("Modo padrao copiloto", state.settings.copilot_default_mode.clone()),
                 status_row(
-                    "Copilot transcript",
+                    "Transcript copiloto",
                     if state.settings.copilot_auto_include_transcript {
-                        "included by default"
+                        "incluido por padrao"
                     } else {
-                        "manual / listen only"
+                        "manual / somente ouvir"
                     },
                 ),
                 status_row(
-                    "OAuth account",
-                    state.openai_account_label.as_deref().unwrap_or("unknown"),
+                    "Conta OAuth",
+                    state.openai_account_label.as_deref().unwrap_or("desconhecida"),
                 ),
             ]
             .spacing(12),
         )
         .padding(18)
         .style(|_| card_style()),
+        // Save button at the bottom, outside all cards
+        row![
+            save_settings,
+            state
+                .settings_note
+                .as_ref()
+                .map(|note| {
+                    text(note)
+                        .size(12)
+                        .color(Color::from_rgba8(148, 163, 184, 0.88))
+                })
+                .unwrap_or_else(|| text("")),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
         state
             .error
             .as_ref()
             .map(|error| {
                 container(
                     column![
-                        text("Issue")
+                        text("Problema")
                             .size(13)
                             .color(Color::from_rgb8(251, 146, 60)),
                         text(error)
@@ -266,7 +267,7 @@ pub fn tab_content(state: &Overlay) -> Element<'_, Message> {
             })
             .unwrap_or_else(|| {
                 container(
-                    text("This panel is generated by OpenVoice. Validate OpenRouter and OpenAI realtime before relying on it in production.")
+                    text("Este painel e gerado pelo OpenVoice. Valide OpenRouter e OpenAI realtime antes de confiar nele em producao.")
                         .size(12)
                         .color(Color::from_rgba8(226, 232, 240, 0.66)),
                 )

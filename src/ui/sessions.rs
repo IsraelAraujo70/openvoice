@@ -1,9 +1,9 @@
 use crate::app::{Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::{
-    SessionSummary, format_iso_for_display,
+    format_iso_for_display, SessionSummary,
 };
 use iced::widget::{
-    Space, button, column, container, rich_text, row, scrollable, span, text, text_input,
+    button, column, container, rich_text, row, scrollable, span, text, text_input, Space,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
@@ -118,6 +118,7 @@ fn session_card<'a>(
     let summary_row = row![
         card_col,
         Space::new().width(Length::Fill),
+        delete_btn(session.id),
         expand_btn(session.id, is_selected),
     ]
     .align_y(Alignment::Center)
@@ -181,7 +182,7 @@ fn session_detail<'a>(state: &'a Overlay, _session: &'a SessionSummary) -> Eleme
     let actions = row![
         action_btn("Copiar", Message::CopySessionTranscript),
         action_btn("Perguntar", Message::OpenCopilotView),
-        action_btn("Exportar para Obsidian", Message::CopySessionTranscript), // placeholder
+        disabled_action_btn("Obsidian (em breve)"),
     ]
     .spacing(8);
 
@@ -227,12 +228,35 @@ fn expand_btn<'a>(session_id: i64, is_selected: bool) -> Element<'a, Message> {
     .into()
 }
 
+fn delete_btn(session_id: i64) -> Element<'static, Message> {
+    button(
+        text("\u{2715}")
+            .size(11)
+            .color(Color::from_rgba8(248, 113, 113, 0.65)),
+    )
+    .on_press(Message::DeleteSession(session_id))
+    .style(|_, _| ghost_btn_style())
+    .padding([4, 8])
+    .into()
+}
+
 fn action_btn<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
     button(text(label).size(12).color(Color::WHITE))
         .on_press(msg)
         .style(|_, _| action_btn_style())
         .padding([6, 14])
         .into()
+}
+
+fn disabled_action_btn<'a>(label: &'static str) -> Element<'a, Message> {
+    button(
+        text(label)
+            .size(12)
+            .color(Color::from_rgba8(148, 163, 184, 0.5)),
+    )
+    .style(|_, _| disabled_action_btn_style())
+    .padding([6, 14])
+    .into()
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +308,20 @@ fn action_btn_style() -> button::Style {
         },
         shadow: Shadow::default(),
         text_color: Color::WHITE,
+        snap: false,
+    }
+}
+
+fn disabled_action_btn_style() -> button::Style {
+    button::Style {
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04))),
+        border: Border {
+            color: Color::from_rgba(1.0, 1.0, 1.0, 0.07),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        shadow: Shadow::default(),
+        text_color: Color::from_rgba8(148, 163, 184, 0.5),
         snap: false,
     }
 }

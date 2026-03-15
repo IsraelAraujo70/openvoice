@@ -20,11 +20,11 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             .into();
     }
 
-    // Rolling window: last 3 completed segments plus the in-flight partial.
+    // Rolling window: last 2 completed segments plus the in-flight partial.
     let visible_lines: Vec<&str> = completed
         .iter()
         .rev()
-        .take(3)
+        .take(2)
         .rev()
         .map(|s| s.as_str())
         .collect();

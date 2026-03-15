@@ -6,6 +6,7 @@ use crate::modules::auth::application as auth_application;
 use crate::modules::auth::domain::CredentialStoreStrategy;
 use crate::modules::copilot::application as copilot_application;
 use crate::modules::copilot::domain::{CopilotChatMessage, CopilotContext, CopilotRole};
+use crate::modules::copilot::infrastructure as copilot_infrastructure;
 use crate::modules::dictation::application as dictation_application;
 use crate::modules::dictation::domain::DictationConfig;
 use crate::modules::live_transcription::application as live_transcription_application;
@@ -172,9 +173,28 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
         }
 
         Message::SwitchHomeTab(tab) => {
-            let needs_open = state.main_view != MainView::Home;
             let reload_sessions = matches!(tab, HomeTab::Sessions);
             let reload_copilot_threads = matches!(tab, HomeTab::Copilot);
+
+            // Close copilot overlay windows if they are open, restoring main window.
+            let copilot_was_open =
+                state.copilot_window_id.is_some() || state.copilot_response_window_id.is_some();
+            let mut copilot_close_tasks = Vec::new();
+            if copilot_was_open {
+                state.copilot_listen_recorder = None;
+                if let Some(window_id) = state.copilot_window_id.take() {
+                    copilot_close_tasks.push(window::close(window_id));
+                }
+                if let Some(window_id) = state.copilot_response_window_id.take() {
+                    copilot_close_tasks.push(window::close(window_id));
+                }
+                if let Some(main_window_id) = state.main_window_id {
+                    copilot_close_tasks
+                        .push(window::set_mode(main_window_id, window::Mode::Windowed));
+                }
+            }
+
+            let needs_open = state.main_view != MainView::Home;
 
             if needs_open {
                 if state.is_recording() || state.is_processing() {
@@ -186,7 +206,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 state.home_tab = tab;
                 state.error = None;
 
-                let mut tasks = Vec::new();
+                let mut tasks = copilot_close_tasks;
 
                 if let Some(window_id) = state.main_window_id {
                     let settings = app_window::home_window_settings();
@@ -221,17 +241,28 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             } else {
                 state.home_tab = tab;
 
+                let mut tasks = copilot_close_tasks;
+
                 if reload_sessions {
                     state.sessions_loading = true;
-                    Task::perform(async { db::list_sessions() }, Message::SessionsLoaded)
-                } else if reload_copilot_threads {
+                    tasks.push(Task::perform(
+                        async { db::list_sessions() },
+                        Message::SessionsLoaded,
+                    ));
+                }
+
+                if reload_copilot_threads {
                     state.copilot_threads_loading = true;
-                    Task::perform(
+                    tasks.push(Task::perform(
                         async { copilot_application::list_saved_threads() },
                         Message::CopilotThreadsLoaded,
-                    )
-                } else {
+                    ));
+                }
+
+                if tasks.is_empty() {
                     Task::none()
+                } else {
+                    Task::batch(tasks)
                 }
             }
         }
@@ -1066,6 +1097,26 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             )
         }
 
+        Message::OpenSessionDetail(session_id) => {
+            // Switch to Sessions tab and auto-select the given session
+            state.home_tab = HomeTab::Sessions;
+            state.sessions_loading = true;
+            state.selected_session_id = Some(session_id);
+            state.selected_session_loading = true;
+            state.selected_session_segments.clear();
+
+            Task::batch([
+                Task::perform(
+                    async { db::list_sessions() },
+                    Message::SessionsLoaded,
+                ),
+                Task::perform(
+                    async move { db::get_session_segments(session_id) },
+                    Message::SessionDetailLoaded,
+                ),
+            ])
+        }
+
         Message::SessionDetailLoaded(result) => {
             state.selected_session_loading = false;
             match result {
@@ -1089,6 +1140,33 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 iced::clipboard::write_primary(transcript),
             ])
         }
+
+        Message::DeleteSession(session_id) => {
+            // Deselect if currently selected
+            if state.selected_session_id == Some(session_id) {
+                state.selected_session_id = None;
+                state.selected_session_segments.clear();
+            }
+
+            Task::perform(
+                async move {
+                    db::delete_session(session_id)?;
+                    Ok(session_id)
+                },
+                Message::SessionDeleted,
+            )
+        }
+
+        Message::SessionDeleted(result) => match result {
+            Ok(session_id) => {
+                state.sessions_list.retain(|s| s.id != session_id);
+                Task::none()
+            }
+            Err(err) => {
+                state.error = Some(format!("Erro ao remover sessao: {err}"));
+                Task::none()
+            }
+        },
 
         // ------------------------------------------------------------------ //
         // Copilot
@@ -1320,7 +1398,8 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 Ok(threads) => {
                     let should_restore_latest = state.copilot_thread_id.is_none()
                         && state.copilot_messages.is_empty()
-                        && !threads.is_empty();
+                        && !threads.is_empty()
+                        && state.copilot_window_id.is_some();
 
                     let latest_id = threads.first().map(|thread| thread.id);
                     state.copilot_threads = threads;
@@ -1344,6 +1423,7 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
             }
         }
         Message::CopilotThreadSelected(thread_id) => {
+            state.copilot_thread_id = Some(thread_id);
             state.selected_copilot_thread_id = Some(thread_id);
             state.copilot_busy = false;
             state.copilot_stream = None;
@@ -1368,6 +1448,22 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 Task::none()
             }
         },
+        Message::OpenCopilotThreadInOverlay(thread_id) => {
+            state.copilot_thread_id = Some(thread_id);
+            state.selected_copilot_thread_id = Some(thread_id);
+            state.copilot_busy = false;
+            state.copilot_stream = None;
+            state.copilot_error = None;
+
+            let load_task = Task::perform(
+                async move { copilot_application::load_saved_thread(thread_id) },
+                Message::CopilotThreadLoaded,
+            );
+
+            let open_task = open_copilot_view(state);
+            Task::batch([load_task, open_task])
+        }
+
         Message::NewCopilotThread => {
             state.copilot_thread_id = None;
             state.selected_copilot_thread_id = None;
@@ -1396,6 +1492,37 @@ pub fn update(state: &mut Overlay, message: Message) -> Task<Message> {
                 iced::clipboard::write_primary(answer),
             ])
         }
+
+        Message::DeleteCopilotThread(thread_id) => {
+            // If currently viewing this thread, clear it
+            if state.copilot_thread_id == Some(thread_id) {
+                state.copilot_thread_id = None;
+                state.selected_copilot_thread_id = None;
+                state.copilot_messages.clear();
+                state.copilot_error = None;
+            } else if state.selected_copilot_thread_id == Some(thread_id) {
+                state.selected_copilot_thread_id = None;
+            }
+
+            Task::perform(
+                async move {
+                    copilot_infrastructure::delete_thread(thread_id)?;
+                    Ok(thread_id)
+                },
+                Message::CopilotThreadDeleted,
+            )
+        }
+
+        Message::CopilotThreadDeleted(result) => match result {
+            Ok(thread_id) => {
+                state.copilot_threads.retain(|t| t.id != thread_id);
+                Task::none()
+            }
+            Err(err) => {
+                state.copilot_error = Some(format!("Erro ao remover thread: {err}"));
+                Task::none()
+            }
+        },
 
         // ------------------------------------------------------------------ //
         // Window behavior

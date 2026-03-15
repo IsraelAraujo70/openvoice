@@ -2,7 +2,7 @@ use crate::modules::copilot::domain::{
     CopilotMode, CopilotThread, CopilotThreadSummary, CopilotTurn,
 };
 use crate::modules::live_transcription::infrastructure::db;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
     db::ensure_schema(conn)?;
@@ -212,6 +212,22 @@ pub fn load_turns(thread_id: i64) -> Result<Vec<CopilotTurn>, String> {
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Nao consegui ler turnos do copilot: {error}"))
+}
+
+pub fn delete_thread(thread_id: i64) -> Result<(), String> {
+    let conn = db::open_db()?;
+    ensure_schema(&conn)?;
+
+    conn.execute(
+        "DELETE FROM cp_turns WHERE thread_id = ?1",
+        params![thread_id],
+    )
+    .map_err(|error| format!("Nao consegui remover turnos do copilot: {error}"))?;
+
+    conn.execute("DELETE FROM cp_threads WHERE id = ?1", params![thread_id])
+        .map_err(|error| format!("Nao consegui remover thread do copilot: {error}"))?;
+
+    Ok(())
 }
 
 #[cfg(test)]

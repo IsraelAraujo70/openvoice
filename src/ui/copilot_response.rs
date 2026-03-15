@@ -1,7 +1,7 @@
 use crate::app::{Message, Overlay};
 use crate::modules::copilot::domain::{CopilotChatMessage, CopilotRole};
-use iced::widget::{column, container, markdown, scrollable, text};
-use iced::{Background, Border, Color, Element, Length, Shadow, Theme};
+use iced::widget::{button, column, container, markdown, row, scrollable, text, Space};
+use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Theme};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
     let latest_user = latest_message(state, CopilotRole::User);
@@ -13,6 +13,8 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             .height(Length::Fill)
             .into();
     }
+
+    let has_answer = latest_answer.is_some();
 
     let content: Element<'_, Message> = if let Some(error) = &state.copilot_error {
         column![
@@ -40,8 +42,12 @@ pub fn view(state: &Overlay) -> Element<'_, Message> {
             .into()
     };
 
+    let footer = row![Space::new().width(Length::Fill), copy_btn(has_answer),]
+        .align_y(Alignment::Center)
+        .spacing(8);
+
     container(
-        container(content)
+        container(column![content, footer].spacing(8))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding([12, 18])
@@ -84,6 +90,47 @@ fn question_hint(message: &CopilotChatMessage) -> Element<'_, Message> {
 
 fn empty_line<'a>() -> Element<'a, Message> {
     text("").size(1).into()
+}
+
+fn copy_btn(has_answer: bool) -> Element<'static, Message> {
+    let btn = button(text("Copiar").size(12).color(if has_answer {
+        Color::WHITE
+    } else {
+        Color::from_rgba8(148, 163, 184, 0.5)
+    }))
+    .padding([6, 14])
+    .on_press_maybe(has_answer.then_some(Message::CopyCopilotAnswer))
+    .style(move |_, status| copy_btn_style(has_answer, status));
+
+    btn.into()
+}
+
+fn copy_btn_style(enabled: bool, _status: button::Status) -> button::Style {
+    if enabled {
+        button::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.10))),
+            border: Border {
+                color: Color::from_rgba(1.0, 1.0, 1.0, 0.14),
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            shadow: Shadow::default(),
+            text_color: Color::WHITE,
+            snap: false,
+        }
+    } else {
+        button::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04))),
+            border: Border {
+                color: Color::from_rgba(1.0, 1.0, 1.0, 0.07),
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            shadow: Shadow::default(),
+            text_color: Color::from_rgba8(148, 163, 184, 0.5),
+            snap: false,
+        }
+    }
 }
 
 fn response_style() -> container::Style {

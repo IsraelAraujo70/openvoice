@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -187,6 +187,22 @@ pub fn update_session_title(session_id: i64, title: &str) -> Result<(), String> 
         params![session_id, title],
     )
     .map_err(|e| format!("Nao consegui salvar o titulo da sessao: {e}"))?;
+
+    Ok(())
+}
+
+pub fn delete_session(session_id: i64) -> Result<(), String> {
+    let conn = open_db()?;
+    ensure_schema(&conn)?;
+
+    conn.execute(
+        "DELETE FROM lt_segments WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| format!("Nao consegui remover segmentos da sessao: {e}"))?;
+
+    conn.execute("DELETE FROM lt_sessions WHERE id = ?1", params![session_id])
+        .map_err(|e| format!("Nao consegui remover a sessao: {e}"))?;
 
     Ok(())
 }

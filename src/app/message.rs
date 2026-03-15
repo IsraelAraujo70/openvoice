@@ -1,6 +1,6 @@
 use iced::widget::markdown;
 use iced::widget::text_editor;
-use iced::{Point, Size, keyboard, window};
+use iced::{keyboard, window, Point, Size};
 
 use crate::modules::auth::domain::{OpenAiAuthSnapshot, PendingOpenAiOAuthFlow};
 use crate::modules::copilot::application::{
@@ -75,8 +75,11 @@ pub enum Message {
     SessionsLoaded(Result<Vec<SessionSummary>, String>),
     SessionsSearchChanged(String),
     SessionSelected(i64),
+    OpenSessionDetail(i64),
     SessionDetailLoaded(Result<Vec<String>, String>),
     CopySessionTranscript,
+    DeleteSession(i64),
+    SessionDeleted(Result<i64, String>),
     // Copilot
     CopilotInputEdited(text_editor::Action),
     CopilotModeChanged(CopilotMode),
@@ -92,9 +95,12 @@ pub enum Message {
     CopilotThreadsLoaded(Result<Vec<CopilotThreadSummary>, String>),
     CopilotThreadSelected(i64),
     CopilotThreadLoaded(Result<LoadedCopilotThread, String>),
+    OpenCopilotThreadInOverlay(i64),
     NewCopilotThread,
     CopilotMarkdownLinkClicked(markdown::Uri),
     CopyCopilotAnswer,
+    DeleteCopilotThread(i64),
+    CopilotThreadDeleted(Result<i64, String>),
     // Window behavior
     TogglePassthrough,
     Quit,

@@ -1,7 +1,7 @@
 use crate::app::{HomeTab, Message, Overlay};
 use crate::modules::live_transcription::infrastructure::db::format_iso_for_display;
 use crate::ui::{copilot, sessions, settings};
-use iced::widget::{Space, button, column, container, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
 
 pub fn view(state: &Overlay) -> Element<'_, Message> {
@@ -74,14 +74,14 @@ fn home_content(state: &Overlay) -> Element<'_, Message> {
         action_card(
             listen_label,
             "Transcricao realtime do audio do sistema",
-            "Ctrl+Shift+L",
+            "Realtime",
             listen_action,
             false,
         ),
         action_card(
             dictation_label,
             "Gravar microfone e transcrever via OpenRouter",
-            "Ctrl+Shift+D",
+            "Mic",
             dictation_action,
             false,
         ),
@@ -201,6 +201,7 @@ fn recent_sessions(state: &Overlay) -> Element<'_, Message> {
         let date = format_iso_for_display(&session.started_at);
         let lang = session.language.as_deref().unwrap_or("?");
         let segs = session.segment_count;
+        let session_id = session.id;
 
         // Prefer title over preview when available
         let display_text = if let Some(title) = &session.title {
@@ -236,7 +237,7 @@ fn recent_sessions(state: &Overlay) -> Element<'_, Message> {
         col = col.push(
             button(card)
                 .width(Length::Fill)
-                .on_press(Message::SwitchHomeTab(HomeTab::Sessions))
+                .on_press(Message::OpenSessionDetail(session_id))
                 .style(|_, _| transparent_btn_style()),
         );
     }
